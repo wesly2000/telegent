@@ -1,7 +1,7 @@
 # Telegent
 
-Telegent measures packet-level response latency for streaming LLM HTTP requests.
-It uses `tshark` and a TLS key log to identify `/responses` and
+Telegent captures and measures packet-level response latency for streaming LLM
+HTTP requests. It uses `tshark` and a TLS key log to identify `/responses` and
 `/chat/completions` POST requests without depending on Codex internals.
 
 ## Requirements
@@ -9,6 +9,7 @@ It uses `tshark` and a TLS key log to identify `/responses` and
 - Python 3.10 or newer
 - `tshark` on `PATH`
 - A TLS key log that can decrypt the capture
+- Bash for automated capture workloads
 
 ## Usage
 
@@ -17,6 +18,59 @@ Install the package in a virtual environment:
 ```bash
 python -m pip install ./telegent
 ```
+
+Copy `.env.example` to `.env`, set the local paths and provider API keys, then
+capture a configured model/provider pair:
+
+```bash
+telegent capture deepseek openrouter
+```
+
+Telegent validates `codex-third-party/deepseek/config.toml`, the selected
+`openrouter.config.toml` profile, its API-key environment variable, and every
+executable before reserving a provider-specific capture ID. Use `--dry-run` to
+show the resolved paths and commands without reserving an ID or starting a
+process:
+
+```bash
+telegent capture deepseek openrouter --dry-run
+```
+
+Configuration is resolved in this order: command-line overrides, process
+environment, `.env` in the working directory (or `--env-file`), then defaults.
+Run `telegent capture --help` for the complete set of overrides. Successful
+captures contain a pcap, an append-only model TLS key log, and a run directory
+with `capture.json`, `capture.log`, and the sequence output under `agent/`.
+Failed captures remove their reserved artifacts, make the ID reusable, and keep
+a diagnostic log under the model's `failures/` directory.
+
+Telegent includes `codex-sequence.sh` and the manual `codex-deepseek.sh`,
+`codex-glm.sh`, `codex-minimax.sh`, and `codex-openai.sh` launchers under
+`src/telegent/scripts`. The launchers have no machine-specific paths. They load
+these values from the process environment or `.env`, with existing process
+variables taking precedence:
+
+- `TELEGENT_CODEX_CONFIG_ROOT`
+- `TELEGENT_CAPTURE_ROOT`
+- `TELEGENT_CODEX_BINARY`
+
+Set `TELEGENT_ENV_FILE` in the process environment to select another dotenv
+file. The dotenv file is parsed by `python-dotenv`; it is not sourced as shell
+code. For manual sequence runs, `TELEGENT_MODEL_PROVIDER` can replace the
+provider argument, and `TELEGENT_PROMPTS_FILE` can select a newline-delimited
+prompt file instead of the bundled two-prompt test sequence.
+
+For example:
+
+```bash
+# From the repository working directory:
+telegent/src/telegent/scripts/codex-deepseek.sh exec -p openrouter
+
+TELEGENT_MODEL_PROVIDER=openrouter \
+  telegent/src/telegent/scripts/codex-sequence.sh
+```
+
+### Analysis
 
 Analyze one or more capture/key-log pairs:
 
@@ -44,11 +98,13 @@ classification or timing.
 ```python
 from pathlib import Path
 
-from telegent import TsharkAnalyzer
+from telegent import CaptureRunner, CaptureSettings, TsharkAnalyzer
+
+capture = CaptureRunner(CaptureSettings.resolve()).collect("deepseek", "openrouter")
 
 transactions = TsharkAnalyzer().analyze_capture(
-    Path("capture.pcap"),
-    Path("sslkeys.key"),
+    capture.pcap_path,
+    capture.ssl_keylog_path,
 )
 
 for transaction in transactions:
