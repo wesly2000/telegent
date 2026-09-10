@@ -3,3 +3,7 @@
 *.egg-info/
 __pycache__/
 *.py[cod]
+.env
+.env.*
+!.env.example
+/src/telegent/scripts/rain-world-prompts.txt

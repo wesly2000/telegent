@@ -9,7 +9,10 @@ description = "Packet-level telemetry for streaming LLM HTTP traffic"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-dependencies = []
+dependencies = [
+    "python-dotenv>=1.0",
+    "tomli>=2.0; python_version < '3.11'",
+]
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
@@ -23,3 +26,9 @@ testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+telegent = ["scripts/*.sh", "scripts/test-prompts.txt"]
+
+[tool.setuptools.exclude-package-data]
+telegent = ["scripts/rain-world-prompts.txt"]
