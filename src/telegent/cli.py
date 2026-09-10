@@ -9,6 +9,8 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from .analyzer import TelegentError, TsharkAnalyzer
+from .collector import CaptureRunner, CaptureSettings
+from .errors import CaptureError
 from .models import FramePoint, HttpTransaction
 
 _CSV_FIELDS = (
@@ -38,6 +40,9 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = _parser()
     args = parser.parse_args(argv)
+    if args.command == "capture":
+        return _capture(args)
+
     analyzer = TsharkAnalyzer()
     transactions: list[HttpTransaction] = []
     try:
@@ -71,7 +76,64 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         help="destination CSV file",
     )
+    capture = subparsers.add_parser(
+        "capture", help="run a Codex sequence while capturing its network traffic"
+    )
+    capture.add_argument("model", help="Codex configuration directory name")
+    capture.add_argument("provider", help="Codex profile and model provider name")
+    capture.add_argument(
+        "--env-file", type=Path, help="dotenv file (default: .env in working directory)"
+    )
+    capture.add_argument("--capture-root", type=Path)
+    capture.add_argument("--codex-config-root", type=Path)
+    capture.add_argument("--sequence-script", type=Path)
+    capture.add_argument("--codex-binary", type=Path)
+    capture.add_argument("--capture-interface", "--interface")
+    capture.add_argument("--capture-filter", "--filter")
+    capture.add_argument("--tail-seconds", type=float)
+    capture.add_argument(
+        "--capture-start-timeout-seconds", "--start-timeout-seconds", type=float
+    )
+    capture.add_argument("--tshark-binary", type=Path)
+    capture.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="validate and print resolved paths and commands without starting processes",
+    )
     return parser
+
+
+def _capture(args: argparse.Namespace) -> int:
+    names = (
+        "env_file",
+        "capture_root",
+        "codex_config_root",
+        "sequence_script",
+        "codex_binary",
+        "capture_interface",
+        "capture_filter",
+        "tail_seconds",
+        "capture_start_timeout_seconds",
+        "tshark_binary",
+    )
+    overrides = {name: getattr(args, name) for name in names if getattr(args, name) is not None}
+    try:
+        runner = CaptureRunner(CaptureSettings.resolve(overrides))
+        if args.dry_run:
+            print(runner.dry_run(args.model, args.provider))
+            return 0
+        result = runner.collect(args.model, args.provider)
+    except CaptureError as error:
+        print(f"telegent: error: {error}", file=sys.stderr)
+        if error.failure_log_path is not None:
+            print(f"failure log: {error.failure_log_path}", file=sys.stderr)
+        return 130 if error.interrupted else 1
+
+    print(f"capture {result.provider}_{result.capture_id:02d} complete")
+    print(f"pcap: {result.pcap_path}")
+    print(f"TLS key log: {result.ssl_keylog_path}")
+    print(f"run artifacts: {result.run_directory}")
+    return 0
 
 
 def _write_csv(path: Path, transactions: Iterable[HttpTransaction]) -> None:
