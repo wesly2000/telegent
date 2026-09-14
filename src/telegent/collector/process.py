@@ -13,6 +13,7 @@ from typing import IO, Any
 
 from ..errors import CaptureError
 
+# Four-byte file signatures for pcapng and classic pcap byte-order variants.
 _PCAP_MAGICS = {
     b"\x0a\x0d\x0d\x0a",
     b"\xa1\xb2\xc3\xd4",

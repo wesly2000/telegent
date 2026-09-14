@@ -26,6 +26,17 @@ capture a configured model/provider pair:
 telegent capture deepseek openrouter
 ```
 
+Pass a positive repetition count to collect multiple captures sequentially with
+the same resolved configuration:
+
+```bash
+telegent capture deepseek openrouter 5
+```
+
+Each successful repetition receives its own provider-specific capture ID. If a
+repetition fails, Telegent stops immediately, preserves earlier successful
+captures, and returns a nonzero status.
+
 Telegent validates `codex-third-party/deepseek/config.toml`, the selected
 `openrouter.config.toml` profile, its API-key environment variable, and every
 executable before reserving a provider-specific capture ID. Use `--dry-run` to

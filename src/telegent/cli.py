@@ -9,7 +9,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from .analyzer import TelegentError, TsharkAnalyzer
-from .collector import CaptureRunner, CaptureSettings
+from .collector import CaptureResult, CaptureRunner, CaptureSettings
 from .errors import CaptureError
 from .models import FramePoint, HttpTransaction
 
@@ -82,6 +82,14 @@ def _parser() -> argparse.ArgumentParser:
     capture.add_argument("model", help="Codex configuration directory name")
     capture.add_argument("provider", help="Codex profile and model provider name")
     capture.add_argument(
+        "repetitions",
+        nargs="?",
+        default=1,
+        type=_positive_integer,
+        metavar="N",
+        help="number of sequential captures to collect (default: 1)",
+    )
+    capture.add_argument(
         "--env-file", type=Path, help="dotenv file (default: .env in working directory)"
     )
     capture.add_argument("--capture-root", type=Path)
@@ -121,19 +129,40 @@ def _capture(args: argparse.Namespace) -> int:
         runner = CaptureRunner(CaptureSettings.resolve(overrides))
         if args.dry_run:
             print(runner.dry_run(args.model, args.provider))
+            print(f"repetitions: {args.repetitions}")
             return 0
-        result = runner.collect(args.model, args.provider)
+        for repetition in range(1, args.repetitions + 1):
+            result = runner.collect(args.model, args.provider)
+            _print_capture_result(result, repetition, args.repetitions)
     except CaptureError as error:
         print(f"telegent: error: {error}", file=sys.stderr)
         if error.failure_log_path is not None:
             print(f"failure log: {error.failure_log_path}", file=sys.stderr)
         return 130 if error.interrupted else 1
 
-    print(f"capture {result.provider}_{result.capture_id:02d} complete")
+    return 0
+
+
+def _print_capture_result(
+    result: CaptureResult, repetition: int, repetitions: int
+) -> None:
+    prefix = "capture"
+    if repetitions > 1:
+        prefix = f"capture {repetition}/{repetitions}:"
+    print(f"{prefix} {result.provider}_{result.capture_id:02d} complete")
     print(f"pcap: {result.pcap_path}")
     print(f"TLS key log: {result.ssl_keylog_path}")
     print(f"run artifacts: {result.run_directory}")
-    return 0
+
+
+def _positive_integer(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be a positive integer") from error
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
 
 
 def _write_csv(path: Path, transactions: Iterable[HttpTransaction]) -> None:
