@@ -3,6 +3,7 @@
 import argparse
 import csv
 import math
+import re
 import statistics
 import sys
 from collections.abc import Iterable
@@ -10,6 +11,7 @@ from pathlib import Path
 
 from .analyzer import TelegentError, TsharkAnalyzer
 from .collector import CaptureResult, CaptureRunner, CaptureSettings
+from .collector.config import validate_all_targets
 from .errors import CaptureError
 from .models import FramePoint, HttpTransaction
 from .probe import EndpointProbe, ProbeSettings
@@ -42,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
     if args.command == "capture":
-        return _capture(args)
+        return _capture(args, parser)
     if args.command == "test":
         return _test(args)
 
@@ -105,14 +107,17 @@ def _parser() -> argparse.ArgumentParser:
         "capture", help="run a Codex sequence while capturing its network traffic"
     )
     capture.add_argument("model", help="Codex configuration directory name")
-    capture.add_argument("provider", help="Codex profile and model provider name")
+    capture.add_argument(
+        "provider",
+        nargs="?",
+        help="provider name, or N to capture all configured providers",
+    )
     capture.add_argument(
         "repetitions",
         nargs="?",
-        default=1,
         type=_positive_integer,
         metavar="N",
-        help="number of sequential captures to collect (default: 1)",
+        help="number of capture rounds (default: 1)",
     )
     capture.add_argument(
         "--env-file", type=Path, help="dotenv file (default: .env in working directory)"
@@ -177,7 +182,18 @@ def _test(args: argparse.Namespace) -> int:
     return 0 if all(result.status in ("PASS", "READY") for result in results) else 1
 
 
-def _capture(args: argparse.Namespace) -> int:
+def _capture(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    provider = args.provider
+    repetitions = args.repetitions or 1
+    if provider is not None and re.fullmatch(r"[+-]?[0-9]+", provider):
+        if args.repetitions is not None:
+            parser.error("specify either a provider and N, or N alone")
+        try:
+            repetitions = _positive_integer(provider)
+        except argparse.ArgumentTypeError as error:
+            parser.error(str(error))
+        provider = None
+
     names = (
         "env_file",
         "capture_root",
@@ -191,29 +207,62 @@ def _capture(args: argparse.Namespace) -> int:
         "tshark_binary",
     )
     overrides = {name: getattr(args, name) for name in names if getattr(args, name) is not None}
+    active_capture: tuple[int, str] | None = None
     try:
         runner = CaptureRunner(CaptureSettings.resolve(overrides))
+        providers = (
+            [provider]
+            if provider is not None
+            else [target.provider for target in validate_all_targets(runner.settings, args.model)]
+        )
         if args.dry_run:
-            print(runner.dry_run(args.model, args.provider))
-            print(f"repetitions: {args.repetitions}")
+            for selected_provider in providers:
+                print(runner.dry_run(args.model, selected_provider))
+            print(f"providers: {', '.join(providers)}")
+            print(f"repetitions: {repetitions}")
             return 0
-        for repetition in range(1, args.repetitions + 1):
-            result = runner.collect(args.model, args.provider)
-            _print_capture_result(result, repetition, args.repetitions)
+        if provider is None:
+            print(
+                f"capturing {len(providers)} provider(s) for {repetitions} round(s)",
+                flush=True,
+            )
+        for repetition in range(1, repetitions + 1):
+            for selected_provider in providers:
+                active_capture = repetition, selected_provider
+                result = runner.collect(args.model, selected_provider)
+                _print_capture_result(
+                    result, repetition, repetitions, all_providers=provider is None
+                )
+                sys.stdout.flush()
     except CaptureError as error:
+        if active_capture is not None and provider is None:
+            round_number, failed_provider = active_capture
+            print(
+                f"capture failed in round {round_number}/{repetitions}: {failed_provider}",
+                file=sys.stderr,
+            )
         print(f"telegent: error: {error}", file=sys.stderr)
         if error.failure_log_path is not None:
             print(f"failure log: {error.failure_log_path}", file=sys.stderr)
         return 130 if error.interrupted else 1
+    except KeyboardInterrupt:
+        print("telegent: capture interrupted", file=sys.stderr)
+        return 130
 
     return 0
 
 
 def _print_capture_result(
-    result: CaptureResult, repetition: int, repetitions: int
+    result: CaptureResult,
+    repetition: int,
+    repetitions: int,
+    *,
+    all_providers: bool = False,
 ) -> None:
     prefix = "capture"
-    if repetitions > 1:
+    if all_providers:
+        prefix = f"capture round {repetition}/{repetitions}:"
+    elif repetitions > 1:
         prefix = f"capture {repetition}/{repetitions}:"
     print(f"{prefix} {result.provider}_{result.capture_id:02d} complete")
     print(f"pcap: {result.pcap_path}")

@@ -33,6 +33,23 @@ the same resolved configuration:
 telegent capture deepseek openrouter 5
 ```
 
+To capture every provider in a model's `config.toml`, omit the provider and
+specify the number of rounds:
+
+```bash
+telegent capture deepseek 5
+```
+
+Each round captures every provider once, sequentially, in `config.toml` order.
+`telegent capture deepseek` captures one round. All providers are validated
+before the first capture. For a background run from the directory containing
+`.env`:
+
+```bash
+nohup /home/lxyu/aitraffic/bin/telegent capture deepseek 5 \
+  > telegent-capture.log 2>&1 &
+```
+
 Each successful repetition receives its own provider-specific capture ID. If a
 repetition fails, Telegent stops immediately, preserves earlier successful
 captures, and returns a nonzero status.
