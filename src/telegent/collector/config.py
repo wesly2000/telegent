@@ -27,6 +27,17 @@ class CaptureTarget:
     api_key_environment_variable: str
 
 
+def validate_all_targets(settings: CaptureSettings, model: str) -> list[CaptureTarget]:
+    """Validate every configured provider before starting a batch capture."""
+
+    _validate_component(model, "model")
+    base_config = settings.codex_config_root / model / "config.toml"
+    providers = _load_toml(base_config, "model configuration").get("model_providers")
+    if not isinstance(providers, dict) or not providers:
+        raise CaptureError(f"no model providers are defined in {base_config}")
+    return [validate_target(settings, model, provider) for provider in providers]
+
+
 def validate_target(
     settings: CaptureSettings, model: str, provider: str
 ) -> CaptureTarget:
