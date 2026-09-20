@@ -95,10 +95,10 @@ Use `--env-file`, `--codex-config-root`, or `--timeout-seconds` to override the
 normal dotenv/configuration lookup and the default 60-second request timeout.
 
 Telegent includes `codex-sequence.sh` and the manual `codex-deepseek.sh`,
-`codex-glm.sh`, `codex-minimax.sh`, and `codex-openai.sh` launchers under
-`src/telegent/scripts`. The launchers have no machine-specific paths. They load
-these values from the process environment or `.env`, with existing process
-variables taking precedence:
+`codex-glm.sh`, `codex-grok.sh`, `codex-minimax.sh`, and `codex-openai.sh`
+launchers under `src/telegent/scripts`. The launchers have no machine-specific
+paths. They load these values from the process environment or `.env`, with
+existing process variables taking precedence:
 
 - `TELEGENT_CODEX_CONFIG_ROOT`
 - `TELEGENT_CAPTURE_ROOT`
