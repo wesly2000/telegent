@@ -92,6 +92,20 @@ telegent analyze \
   --output timings.csv
 ```
 
+Analyze every `.pcap` directly inside one capture directory:
+
+```bash
+telegent analyze \
+  --capture-dir test-capture/chat/deepseek \
+  --analysis-dir test-analysis/chat/deepseek
+```
+
+Batch analysis uses `sslkeys.key` from the capture directory and writes one CSV
+per capture to the analysis directory's `timing/` subdirectory. Each CSV keeps
+the capture's base name, such as `openrouter_01.pcap` becoming
+`timing/openrouter_01.csv`. Captures whose destination CSV already exists are
+skipped without overwriting the existing result.
+
 The CSV contains the request-completion, response-header, and first-response-data
 frame numbers and timestamps, together with these measurements:
 

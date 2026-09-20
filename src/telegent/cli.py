@@ -43,9 +43,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "capture":
         return _capture(args)
 
+    return _analyze(args, parser)
+
+
+def _analyze(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    if args.capture_dir is not None and args.output is not None:
+        parser.error("--capture-dir must be used with --analysis-dir")
+    if args.inputs is not None and args.analysis_dir is not None:
+        parser.error("--input must be used with --output")
+
     analyzer = TsharkAnalyzer()
-    transactions: list[HttpTransaction] = []
     try:
+        if args.capture_dir is not None:
+            return _analyze_directory(analyzer, args.capture_dir, args.analysis_dir)
+
+        transactions: list[HttpTransaction] = []
         for pcap, keylog in args.inputs:
             transactions.extend(analyzer.analyze_capture(pcap, keylog))
         _write_csv(args.output, transactions)
@@ -60,21 +72,31 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="telegent")
     subparsers = parser.add_subparsers(dest="command", required=True)
     analyze = subparsers.add_parser("analyze", help="analyze TLS-decryptable pcaps")
-    analyze.add_argument(
+    analysis_inputs = analyze.add_mutually_exclusive_group(required=True)
+    analysis_inputs.add_argument(
         "--input",
         dest="inputs",
         action="append",
         nargs=2,
-        required=True,
         metavar=("PCAP", "KEYLOG"),
         type=Path,
         help="capture and corresponding TLS key log; may be repeated",
     )
-    analyze.add_argument(
+    analysis_inputs.add_argument(
+        "--capture-dir",
+        type=Path,
+        help="directory containing pcaps and sslkeys.key for batch analysis",
+    )
+    analysis_outputs = analyze.add_mutually_exclusive_group(required=True)
+    analysis_outputs.add_argument(
         "--output",
-        required=True,
         type=Path,
         help="destination CSV file",
+    )
+    analysis_outputs.add_argument(
+        "--analysis-dir",
+        type=Path,
+        help="root directory for batch results; CSV files are written under timing/",
     )
     capture = subparsers.add_parser(
         "capture", help="run a Codex sequence while capturing its network traffic"
@@ -163,6 +185,41 @@ def _positive_integer(value: str) -> int:
     if parsed < 1:
         raise argparse.ArgumentTypeError("must be a positive integer")
     return parsed
+
+
+def _analyze_directory(
+    analyzer: TsharkAnalyzer, capture_dir: Path, analysis_dir: Path
+) -> int:
+    if not capture_dir.is_dir():
+        raise TelegentError(f"capture directory does not exist: {capture_dir}")
+
+    pcaps = sorted(
+        path
+        for path in capture_dir.iterdir()
+        if path.is_file() and path.suffix == ".pcap"
+    )
+    if not pcaps:
+        raise TelegentError(f"no .pcap files found in capture directory: {capture_dir}")
+
+    keylog = capture_dir / "sslkeys.key"
+    timing_dir = analysis_dir / "timing"
+    analyzed = 0
+    skipped = 0
+    for pcap in pcaps:
+        output = timing_dir / f"{pcap.stem}.csv"
+        if output.is_file():
+            print(f"skipped {pcap}: {output} already exists")
+            skipped += 1
+            continue
+
+        transactions = analyzer.analyze_capture(pcap, keylog)
+        _write_csv(output, transactions)
+        print(f"analyzed {pcap} -> {output}")
+        _print_summary(transactions)
+        analyzed += 1
+
+    print(f"batch analysis complete: {analyzed} analyzed, {skipped} skipped")
+    return 0
 
 
 def _write_csv(path: Path, transactions: Iterable[HttpTransaction]) -> None:
