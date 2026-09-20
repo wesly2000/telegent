@@ -5,16 +5,20 @@ from .classifier import is_llm_request
 from .collector import CaptureResult, CaptureRunner, CaptureSettings, ProcessResult
 from .errors import CaptureError, TelegentError
 from .models import FramePoint, HttpRequest, HttpTransaction
+from .probe import EndpointProbe, ProbeResult, ProbeSettings
 
 __all__ = [
     "CaptureError",
     "CaptureResult",
     "CaptureRunner",
     "CaptureSettings",
+    "EndpointProbe",
     "FramePoint",
     "HttpRequest",
     "HttpTransaction",
     "ProcessResult",
+    "ProbeResult",
+    "ProbeSettings",
     "TelegentError",
     "TsharkAnalyzer",
     "is_llm_request",

@@ -55,6 +55,28 @@ with `capture.json`, `capture.log`, and the sequence output under `agent/`.
 Failed captures remove their reserved artifacts, make the ID reusable, and keep
 a diagnostic log under the model's `failures/` directory.
 
+### Endpoint testing
+
+Test the configured provider URLs, API keys, and model IDs without running
+Codex or tshark:
+
+```bash
+telegent test deepseek
+telegent test deepseek --provider openrouter
+telegent test deepseek --dry-run
+```
+
+The command reads every `[model_providers.<provider>]` entry from the model's
+`config.toml` and its matching `<provider>.config.toml` profile. It sends one
+direct Responses API request containing `Hi` per provider and requires a
+completed response. The output reports each provider separately and exits
+nonzero if any provider fails or lacks credentials. `--dry-run` shows the URL,
+model ID, and API-key variable name without sending requests or printing keys.
+Failures include bounded response-status, incomplete-reason, and error-code
+details when available, but never the response body or API key.
+Use `--env-file`, `--codex-config-root`, or `--timeout-seconds` to override the
+normal dotenv/configuration lookup and the default 60-second request timeout.
+
 Telegent includes `codex-sequence.sh` and the manual `codex-deepseek.sh`,
 `codex-glm.sh`, `codex-minimax.sh`, and `codex-openai.sh` launchers under
 `src/telegent/scripts`. The launchers have no machine-specific paths. They load

@@ -12,6 +12,7 @@ from .analyzer import TelegentError, TsharkAnalyzer
 from .collector import CaptureResult, CaptureRunner, CaptureSettings
 from .errors import CaptureError
 from .models import FramePoint, HttpTransaction
+from .probe import EndpointProbe, ProbeSettings
 
 _CSV_FIELDS = (
     "capture_path",
@@ -42,6 +43,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "capture":
         return _capture(args)
+    if args.command == "test":
+        return _test(args)
 
     return _analyze(args, parser)
 
@@ -130,7 +133,48 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="validate and print resolved paths and commands without starting processes",
     )
+    probe = subparsers.add_parser("test", help="test configured model provider endpoints")
+    probe.add_argument("model", help="Codex configuration directory name")
+    probe.add_argument("--provider", help="test only this provider (default: all)")
+    probe.add_argument(
+        "--env-file", type=Path, help="dotenv file (default: .env in working directory)"
+    )
+    probe.add_argument("--codex-config-root", type=Path)
+    probe.add_argument(
+        "--timeout-seconds", type=float, help="request timeout (default: 60)"
+    )
+    probe.add_argument(
+        "--dry-run", action="store_true", help="show targets without sending requests"
+    )
     return parser
+
+
+def _test(args: argparse.Namespace) -> int:
+    overrides = {
+        name: getattr(args, name)
+        for name in ("env_file", "codex_config_root", "timeout_seconds")
+        if getattr(args, name) is not None
+    }
+    try:
+        settings = ProbeSettings.resolve(overrides)
+        results = EndpointProbe(settings).run(
+            args.model, args.provider, dry_run=args.dry_run
+        )
+    except TelegentError as error:
+        print(f"telegent: error: {error}", file=sys.stderr)
+        return 1
+    if args.dry_run:
+        print(f"config root: {settings.codex_config_root}")
+        print(f"dotenv file: {settings.env_file or '<not loaded>'}")
+    for result in results:
+        elapsed = f" ({result.elapsed_ms:.0f} ms)" if result.elapsed_ms is not None else ""
+        print(f"{result.status} {result.provider}: {result.detail}{elapsed}")
+    if args.dry_run:
+        print(f"dry run: {len(results)} provider(s); no requests sent")
+    else:
+        passed = sum(result.status == "PASS" for result in results)
+        print(f"endpoint test complete: {passed}/{len(results)} passed")
+    return 0 if all(result.status in ("PASS", "READY") for result in results) else 1
 
 
 def _capture(args: argparse.Namespace) -> int:
