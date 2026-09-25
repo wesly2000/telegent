@@ -42,6 +42,18 @@ if (( ${#prompts[@]} == 0 )); then
     exit 1
 fi
 
+request_interval=${TELEGENT_REQUEST_INTERVAL_SECONDS:-0}
+if [[ ! $request_interval =~ ^[+]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$ ]]; then
+    echo "error: TELEGENT_REQUEST_INTERVAL_SECONDS must be a nonnegative number" >&2
+    exit 1
+fi
+printf -v request_interval_sleep '%.15f' "$request_interval"
+while [[ $request_interval_sleep == *0 ]]; do
+    request_interval_sleep=${request_interval_sleep%0}
+done
+request_interval_sleep=${request_interval_sleep%.}
+request_interval_sleep=${request_interval_sleep:-0}
+
 timestamp=$(date +%Y%m%d-%H%M%S)
 binary_name=$(basename "$codex_binary")
 run_label="$binary_name-$profile"
@@ -91,6 +103,11 @@ for index in "${!prompts[@]}"; do
         jq -r 'select(.type == "item.completed" and .item.type == "agent_message") | .item.text' "$event_file"
         echo
     } >>"$answers_file"
+
+    if (( index + 1 < ${#prompts[@]} )) && [[ $request_interval_sleep != 0 ]]; then
+        echo "Waiting $request_interval_sleep seconds before the next turn..."
+        sleep "$request_interval_sleep"
+    fi
 done
 
 echo
