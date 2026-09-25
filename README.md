@@ -26,6 +26,17 @@ capture a configured model/provider pair:
 telegent capture deepseek openrouter
 ```
 
+To wait after each completed response before sending the next prompt from the
+prompt file, set an interval in seconds:
+
+```bash
+telegent capture deepseek openrouter --request-interval-seconds 5
+```
+
+The interval can also be configured as `TELEGENT_REQUEST_INTERVAL_SECONDS` in
+`.env`. It defaults to zero and applies only between prompts, never before the
+first prompt or after the last. Packet capture remains active during the wait.
+
 Pass a positive repetition count to collect multiple captures sequentially with
 the same resolved configuration:
 
@@ -103,6 +114,7 @@ existing process variables taking precedence:
 - `TELEGENT_CODEX_CONFIG_ROOT`
 - `TELEGENT_CAPTURE_ROOT`
 - `TELEGENT_CODEX_BINARY`
+- `TELEGENT_REQUEST_INTERVAL_SECONDS`
 
 Set `TELEGENT_ENV_FILE` in the process environment to select another dotenv
 file. The dotenv file is parsed by `python-dotenv`; it is not sourced as shell
