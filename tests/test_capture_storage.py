@@ -14,6 +14,7 @@ def _settings(tmp_path: Path) -> CaptureSettings:
         capture_interface="eth0",
         capture_filter="port 443",
         tail_seconds=0,
+        request_interval_seconds=0,
         capture_start_timeout_seconds=1,
         tshark_binary=tmp_path,
         environment={},

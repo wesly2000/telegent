@@ -12,7 +12,13 @@ def _executable(path: Path, body: str) -> Path:
     return path
 
 
-def _fixture(tmp_path: Path, *, sequence_exit: int = 0, tail: float = 0.02) -> CaptureSettings:
+def _fixture(
+    tmp_path: Path,
+    *,
+    sequence_exit: int = 0,
+    tail: float = 0.02,
+    request_interval: float = 0,
+) -> CaptureSettings:
     config_dir = tmp_path / "configs" / "model"
     config_dir.mkdir(parents=True)
     (config_dir / "config.toml").write_text(
@@ -40,6 +46,7 @@ def _fixture(tmp_path: Path, *, sequence_exit: int = 0, tail: float = 0.02) -> C
         "  'args': sys.argv[1:],\n"
         "  'codex_home': os.environ['CODEX_HOME'],\n"
         "  'sslkeylogfile': os.environ['SSLKEYLOGFILE'],\n"
+        "  'request_interval': os.environ['TELEGENT_REQUEST_INTERVAL_SECONDS'],\n"
         "  'api_key_present': bool(os.environ.get('PROVIDER_KEY')),\n"
         "}\n"
         "(output / 'observed.json').write_text(json.dumps(observed))\n"
@@ -55,6 +62,7 @@ def _fixture(tmp_path: Path, *, sequence_exit: int = 0, tail: float = 0.02) -> C
         capture_interface="test0",
         capture_filter="port 443",
         tail_seconds=tail,
+        request_interval_seconds=request_interval,
         capture_start_timeout_seconds=1,
         tshark_binary=tshark,
         environment={"PROVIDER_KEY": "top-secret"},
@@ -64,7 +72,7 @@ def _fixture(tmp_path: Path, *, sequence_exit: int = 0, tail: float = 0.02) -> C
 def test_collect_publishes_artifacts_metadata_and_child_configuration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    settings = _fixture(tmp_path, tail=3)
+    settings = _fixture(tmp_path, tail=3, request_interval=1.25)
     tail_sleeps: list[float] = []
     monkeypatch.setattr("telegent.collector.runner.sleep", tail_sleeps.append)
     model_dir = settings.capture_root / "model"
@@ -84,12 +92,14 @@ def test_collect_publishes_artifacts_metadata_and_child_configuration(
         "args": [str(settings.codex_binary), "provider"],
         "codex_home": str(settings.codex_config_root / "model"),
         "sslkeylogfile": str(result.ssl_keylog_path),
+        "request_interval": "1.25",
         "api_key_present": True,
     }
     metadata_text = result.metadata_path.read_text(encoding="utf-8")
     metadata = json.loads(metadata_text)
     assert metadata["processes"]["agent"]["returncode"] == 0
     assert metadata["processes"]["tshark"]["returncode"] == 0
+    assert metadata["configuration"]["request_interval_seconds"] == 1.25
     assert "top-secret" not in metadata_text
     assert "top-secret" not in result.capture_log_path.read_text(encoding="utf-8")
     assert not result.pcap_path.with_suffix(".pcap.partial").exists()
@@ -127,6 +137,7 @@ def test_dry_run_validates_without_reserving_or_exposing_key(tmp_path: Path) -> 
     assert "no ID reserved" in output
     assert "PROVIDER_KEY (set)" in output
     assert "TELEGENT_PROMPTS_FILE=<not set; sequence default applies>" in output
+    assert "TELEGENT_REQUEST_INTERVAL_SECONDS=0" in output
     assert "top-secret" not in output
     assert not settings.capture_root.exists()
 

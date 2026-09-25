@@ -130,6 +130,11 @@ def _parser() -> argparse.ArgumentParser:
     capture.add_argument("--capture-filter", "--filter")
     capture.add_argument("--tail-seconds", type=float)
     capture.add_argument(
+        "--request-interval-seconds",
+        type=float,
+        help="delay between completed prompts (default: 0)",
+    )
+    capture.add_argument(
         "--capture-start-timeout-seconds", "--start-timeout-seconds", type=float
     )
     capture.add_argument("--tshark-binary", type=Path)
@@ -203,6 +208,7 @@ def _capture(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         "capture_interface",
         "capture_filter",
         "tail_seconds",
+        "request_interval_seconds",
         "capture_start_timeout_seconds",
         "tshark_binary",
     )

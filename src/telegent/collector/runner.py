@@ -73,6 +73,8 @@ class CaptureRunner:
             f"TELEGENT_CAPTURE_INTERFACE={self.settings.capture_interface}",
             f"TELEGENT_CAPTURE_FILTER={self.settings.capture_filter}",
             f"TELEGENT_TAIL_SECONDS={self.settings.tail_seconds:g}",
+            "TELEGENT_REQUEST_INTERVAL_SECONDS="
+            f"{self.settings.request_interval_seconds:g}",
             "TELEGENT_CAPTURE_START_TIMEOUT_SECONDS="
             f"{self.settings.capture_start_timeout_seconds:g}",
             f"API key variable: {target.api_key_environment_variable} (set)",
@@ -189,6 +191,9 @@ class CaptureRunner:
                 "CODEX_HOME": str(target.codex_home),
                 "SSLKEYLOGFILE": str(reservation.ssl_keylog_path),
                 "CODEX_SEQUENCE_OUTPUT_DIR": str(reservation.run_directory / "agent"),
+                "TELEGENT_REQUEST_INTERVAL_SECONDS": (
+                    f"{self.settings.request_interval_seconds:g}"
+                ),
             }
         )
         return environment
@@ -207,6 +212,7 @@ class CaptureRunner:
                 "capture_interface": self.settings.capture_interface,
                 "capture_filter": self.settings.capture_filter,
                 "tail_seconds": self.settings.tail_seconds,
+                "request_interval_seconds": self.settings.request_interval_seconds,
                 "capture_start_timeout_seconds": (
                     self.settings.capture_start_timeout_seconds
                 ),

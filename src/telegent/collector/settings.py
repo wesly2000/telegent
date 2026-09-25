@@ -1,5 +1,6 @@
 """Resolve capture configuration from CLI, the environment, and dotenv files."""
 
+import math
 import os
 import shutil
 from collections.abc import Mapping
@@ -29,6 +30,7 @@ class CaptureSettings:
     capture_start_timeout_seconds: float
     tshark_binary: Path
     environment: Mapping[str, str] = field(repr=False)
+    request_interval_seconds: float = 0
     env_file: Path | None = None
 
     @classmethod
@@ -75,6 +77,10 @@ class CaptureSettings:
             capture_interface=value("capture_interface", "eth0"),
             capture_filter=value("capture_filter", "port 443"),
             tail_seconds=_duration(value("tail_seconds", "10"), "tail seconds"),
+            request_interval_seconds=_duration(
+                value("request_interval_seconds", "0"),
+                "request interval seconds",
+            ),
             capture_start_timeout_seconds=_duration(
                 value("capture_start_timeout_seconds", "5"),
                 "capture start timeout seconds",
@@ -95,6 +101,7 @@ _ENV_NAMES = {
     "capture_interface": "TELEGENT_CAPTURE_INTERFACE",
     "capture_filter": "TELEGENT_CAPTURE_FILTER",
     "tail_seconds": "TELEGENT_TAIL_SECONDS",
+    "request_interval_seconds": "TELEGENT_REQUEST_INTERVAL_SECONDS",
     "capture_start_timeout_seconds": "TELEGENT_CAPTURE_START_TIMEOUT_SECONDS",
     "tshark_binary": "TELEGENT_TSHARK_BINARY",
 }
@@ -127,6 +134,8 @@ def _duration(value: str, label: str) -> float:
         duration = float(value)
     except ValueError as error:
         raise CaptureError(f"{label} must be a number, got {value!r}") from error
+    if not math.isfinite(duration):
+        raise CaptureError(f"{label} must be finite")
     if duration < 0:
         raise CaptureError(f"{label} must not be negative")
     return duration

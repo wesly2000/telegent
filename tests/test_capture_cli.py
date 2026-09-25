@@ -68,6 +68,7 @@ def test_capture_dry_run_reports_all_dotenv_paths(
         "TELEGENT_CODEX_CONFIG_ROOT=sentinel-configs\n"
         "TELEGENT_SEQUENCE_SCRIPT=sentinel-executable\n"
         "TELEGENT_PROMPTS_FILE=sentinel-prompts.txt\n"
+        "TELEGENT_REQUEST_INTERVAL_SECONDS=4\n"
         "TELEGENT_CODEX_BINARY=sentinel-executable\n"
         "TELEGENT_TSHARK_BINARY=sentinel-executable\n",
         encoding="utf-8",
@@ -77,6 +78,7 @@ def test_capture_dry_run_reports_all_dotenv_paths(
         "TELEGENT_CODEX_CONFIG_ROOT",
         "TELEGENT_SEQUENCE_SCRIPT",
         "TELEGENT_PROMPTS_FILE",
+        "TELEGENT_REQUEST_INTERVAL_SECONDS",
         "TELEGENT_CODEX_BINARY",
         "TELEGENT_TSHARK_BINARY",
     ):
@@ -92,6 +94,8 @@ def test_capture_dry_run_reports_all_dotenv_paths(
             "--dry-run",
             "--env-file",
             str(env_file),
+            "--request-interval-seconds",
+            "2.5",
         ]
     )
 
@@ -104,6 +108,7 @@ def test_capture_dry_run_reports_all_dotenv_paths(
     assert f"TELEGENT_CODEX_CONFIG_ROOT={tmp_path / 'sentinel-configs'}" in output
     assert f"TELEGENT_SEQUENCE_SCRIPT={executable}" in output
     assert "TELEGENT_PROMPTS_FILE=sentinel-prompts.txt" in output
+    assert "TELEGENT_REQUEST_INTERVAL_SECONDS=2.5" in output
     assert f"TELEGENT_CODEX_BINARY={executable}" in output
     assert f"TELEGENT_TSHARK_BINARY={executable}" in output
     assert "API_KEY (set)" in output
