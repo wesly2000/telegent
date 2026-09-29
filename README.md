@@ -173,6 +173,40 @@ token metric currently supports HTTP/2; its CSV value is blank for HTTP/1.1.
 SNI is included only as debugging metadata and does not affect classification
 or timing.
 
+### Metrics database
+
+Telegent can compute a scalar metric from a numeric analysis CSV column and
+upsert it into a persistent wide CSV database. Configure both paths in `.env`:
+
+```dotenv
+TELEGENT_ANALYSIS_ROOT=/absolute/path/to/telegent-analysis
+TELEGENT_METRICS_DB=/absolute/path/to/metrics.csv
+```
+
+Then run one operation:
+
+```bash
+telegent metric \
+  --input /absolute/path/to/telegent-analysis/chat/deepseek/timing/official_01.csv \
+  --column request_to_response_headers_ms \
+  --operator p95
+```
+
+The built-in operators are `mean`, `std`, `p50`, and `p95`. Database rows use
+the input path relative to `TELEGENT_ANALYSIS_ROOT`, and metric columns use
+`operator__column` names:
+
+```csv
+source_id,mean__request_to_response_headers_ms,p95__request_to_response_headers_ms
+chat/deepseek/timing/official_01.csv,123.4,180.2
+chat/glm/timing/official_01.csv,NaN,205.1
+```
+
+New rows and columns are appended, uncomputed cells contain literal `NaN`, and
+recomputing a metric always replaces its existing cell. See the
+[metrics database design](database.md) for the complete naming, computation,
+validation, and update rules.
+
 ## Library API
 
 ```python
@@ -189,6 +223,20 @@ transactions = TsharkAnalyzer().analyze_capture(
 
 for transaction in transactions:
     print(transaction.request_to_response_headers_ms())
+```
+
+The metric workflow is also reusable from Python:
+
+```python
+from telegent import Mean, MetricProcessor, MetricSettings
+
+settings = MetricSettings.resolve()
+result = MetricProcessor(settings).process_file(
+    settings.analysis_root / "chat/deepseek/timing/official_01.csv",
+    "request_to_response_headers_ms",
+    Mean(),
+)
+print(result.metric_key, result.value)
 ```
 
 The default request classifier is `telegent.is_llm_request`. Supply another
