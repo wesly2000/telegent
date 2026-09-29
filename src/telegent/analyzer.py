@@ -7,17 +7,19 @@ from pathlib import Path
 from ._capture import (
     COMMON_FIELDS,
     HTTP1_FIELDS,
+    HTTP2_DATA_FIELDS,
     TsharkRunner,
     collect_sni,
     packets,
 )
 from ._http1 import build_http1_transactions
-from ._http2 import build_http2_transactions
-from .classifier import is_llm_request
+from ._http2 import build_http2_transactions, find_first_streaming_tokens
+from .classifier import is_llm_request, is_streaming_token_event
 from .errors import TelegentError
 from .models import HttpRequest, HttpTransaction
 
 RequestClassifier = Callable[[HttpRequest], bool]
+StreamingEventClassifier = Callable[[bytes], bool]
 
 
 class TsharkAnalyzer:
@@ -27,10 +29,12 @@ class TsharkAnalyzer:
         self,
         request_classifier: RequestClassifier = is_llm_request,
         *,
+        streaming_event_classifier: StreamingEventClassifier = is_streaming_token_event,
         tshark_executable: str | None = None,
         _runner: TsharkRunner | None = None,
     ) -> None:
         self._request_classifier = request_classifier
+        self._streaming_event_classifier = streaming_event_classifier
         self._runner = _runner or TsharkRunner(tshark_executable)
 
     def analyze_capture(
@@ -63,12 +67,25 @@ class TsharkAnalyzer:
         common_packets = list(packets(common_rows))
         http1_packets = list(packets(http1_rows))
         sni_by_stream = collect_sni(common_packets)
-        builders = build_http2_transactions(
+        http2_builders = build_http2_transactions(
             pcap,
             common_packets,
             sni_by_stream,
             self._request_classifier,
         )
+        if http2_builders:
+            http2_data_rows = self._runner.iter_fields(
+                pcap,
+                keylog,
+                HTTP2_DATA_FIELDS,
+                "http2.data.data && http2.length > 0",
+            )
+            find_first_streaming_tokens(
+                packets(http2_data_rows),
+                http2_builders,
+                self._streaming_event_classifier,
+            )
+        builders = list(http2_builders)
         builders.extend(
             build_http1_transactions(
                 pcap,
