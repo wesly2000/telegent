@@ -165,9 +165,15 @@ def _parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="show targets without sending requests"
     )
     metric = subparsers.add_parser(
-        "metric", help="compute and store one metric from an analysis CSV"
+        "metric", help="compute and store metrics from analysis CSV files"
     )
-    metric.add_argument("--input", type=Path, required=True, help="analysis CSV file")
+    metric_inputs = metric.add_mutually_exclusive_group(required=True)
+    metric_inputs.add_argument("--input", type=Path, help="one analysis CSV file")
+    metric_inputs.add_argument(
+        "--root",
+        type=Path,
+        help="analysis root whose .csv files are processed recursively",
+    )
     metric.add_argument("--column", required=True, help="numeric source column")
     metric.add_argument(
         "--operator",
@@ -183,21 +189,32 @@ def _parser() -> argparse.ArgumentParser:
 
 def _metric(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     overrides = {"env_file": args.env_file} if args.env_file is not None else {}
+    if args.root is not None:
+        overrides["analysis_root"] = args.root
     try:
         settings = MetricSettings.resolve(overrides)
-        result = MetricProcessor(settings).process_file(
-            args.input,
-            args.column,
-            _METRIC_OPERATORS[args.operator],
-        )
+        processor = MetricProcessor(settings)
+        operator = _METRIC_OPERATORS[args.operator]
+        if args.root is not None:
+            results = processor.process_directory(args.column, operator)
+        else:
+            results = [processor.process_file(args.input, args.column, operator)]
     except TelegentError as error:
         parser.error(str(error))
 
-    value = "NaN" if not math.isfinite(result.value) else repr(result.value)
-    print(f"source: {result.source_id}")
-    print(f"metric: {result.metric_key}")
-    print(f"value: {value}")
-    print(f"database: {result.database_path}")
+    if args.root is None:
+        result = results[0]
+        value = "NaN" if not math.isfinite(result.value) else repr(result.value)
+        print(f"source: {result.source_id}")
+        print(f"metric: {result.metric_key}")
+        print(f"value: {value}")
+        print(f"database: {result.database_path}")
+    else:
+        for result in results:
+            value = "NaN" if not math.isfinite(result.value) else repr(result.value)
+            print(f"computed {result.metric_key} for {result.source_id}: {value}")
+        print(f"metric batch complete: {len(results)} file(s)")
+        print(f"database: {settings.database_path}")
     return 0
 
 

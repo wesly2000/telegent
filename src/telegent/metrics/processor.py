@@ -21,7 +21,7 @@ class MetricResult:
 
 
 class MetricProcessor:
-    """Compute and persist one scalar metric from one analysis CSV."""
+    """Compute and persist scalar metrics from analysis CSV files."""
 
     def __init__(self, settings: MetricSettings) -> None:
         self.settings = settings
@@ -52,3 +52,26 @@ class MetricProcessor:
             value=value,
             database_path=self.settings.database_path,
         )
+
+    def process_directory(
+        self,
+        column: str,
+        operator: Operator,
+    ) -> list[MetricResult]:
+        """Recursively process every CSV beneath the configured analysis root."""
+
+        root = self.settings.analysis_root.resolve()
+        if not root.is_dir():
+            raise TelegentError(f"analysis root does not exist: {root}")
+        database_path = self.settings.database_path.resolve()
+        inputs = sorted(
+            (
+                path
+                for path in root.rglob("*.csv")
+                if path.is_file() and path.resolve() != database_path
+            ),
+            key=lambda path: path.relative_to(root).as_posix(),
+        )
+        if not inputs:
+            raise TelegentError(f"no .csv files found under analysis root: {root}")
+        return [self.process_file(path, column, operator) for path in inputs]

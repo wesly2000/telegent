@@ -180,7 +180,7 @@ upsert it into a persistent wide CSV database. Configure both paths in `.env`:
 
 ```dotenv
 TELEGENT_ANALYSIS_ROOT=/absolute/path/to/telegent-analysis
-TELEGENT_METRICS_DB=/absolute/path/to/metrics.csv
+TELEGENT_METRICS_DB=/absolute/path/to/telegent-analysis/database.db
 ```
 
 Then run one operation:
@@ -191,6 +191,18 @@ telegent metric \
   --column request_to_response_headers_ms \
   --operator p95
 ```
+
+To apply the same operator and column to every `.csv` below an analysis root:
+
+```bash
+telegent metric \
+  --root /absolute/path/to/telegent-analysis \
+  --column request_to_response_headers_ms \
+  --operator p95
+```
+
+The scan is recursive and deterministic. Files without a `.csv` suffix are
+ignored, so the CSV-formatted `database.db` is not treated as an input.
 
 The built-in operators are `mean`, `std`, `p50`, and `p95`. Database rows use
 the input path relative to `TELEGENT_ANALYSIS_ROOT`, and metric columns use

@@ -14,12 +14,15 @@ Two settings are required, either in the process environment or a dotenv file:
 
 ```dotenv
 TELEGENT_ANALYSIS_ROOT=/absolute/path/to/telegent-analysis
-TELEGENT_METRICS_DB=/absolute/path/to/metrics.csv
+TELEGENT_METRICS_DB=/absolute/path/to/telegent-analysis/database.db
 ```
 
 `TELEGENT_ANALYSIS_ROOT` anchors portable source identifiers.
 `TELEGENT_METRICS_DB` is the CSV database to create or update. Telegent creates
-its parent directories when necessary.
+its parent directories when necessary. Its suffix does not determine its
+format: `database.db` is still CSV text, not SQLite. The `.db` suffix keeps it
+out of recursive `*.csv` input scans. Read it with CSV tooling, for example
+`pandas.read_csv("database.db")`, rather than `pandas.read_sql`.
 
 ## Table schema
 
@@ -115,6 +118,19 @@ An operator returns NaN when it cannot produce a finite result. In particular:
 
 The stored number uses Python's floating-point representation. Non-finite
 results are always serialized as the exact text `NaN`.
+
+## Batch discovery
+
+The `metric` command accepts either one `--input` file or a `--root` directory.
+With `--root`, that path becomes the configured analysis root for the
+invocation. Telegent recursively finds lowercase `*.csv` files and processes
+them in source-ID order. Other suffixes, including `.db`, are ignored.
+
+The configured metrics database is explicitly excluded even if it has a
+`.csv` suffix. An empty scan is an error. Batch execution reuses the same
+single-file processor for every source and is fail-fast: if a discovered CSV
+does not contain the requested column, processing stops and reports the error.
+Results written for earlier files remain committed.
 
 ## Update rules
 
