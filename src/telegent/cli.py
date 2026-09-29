@@ -13,6 +13,7 @@ from .analyzer import TelegentError, TsharkAnalyzer
 from .collector import CaptureResult, CaptureRunner, CaptureSettings
 from .collector.config import validate_all_targets
 from .errors import CaptureError
+from .metrics import Mean, MetricProcessor, MetricSettings, P50, P95, Std
 from .models import FramePoint, HttpTransaction
 from .probe import EndpointProbe, ProbeSettings
 
@@ -38,6 +39,10 @@ _CSV_FIELDS = (
     "first_response_data_to_first_streaming_token_ms",
 )
 
+_METRIC_OPERATORS = {
+    operator.name: operator for operator in (Mean(), Std(), P50(), P95())
+}
+
 
 def main(argv: list[str] | None = None) -> int:
     """Run the Telegent command-line interface."""
@@ -48,6 +53,8 @@ def main(argv: list[str] | None = None) -> int:
         return _capture(args, parser)
     if args.command == "test":
         return _test(args)
+    if args.command == "metric":
+        return _metric(args, parser)
 
     return _analyze(args, parser)
 
@@ -157,7 +164,41 @@ def _parser() -> argparse.ArgumentParser:
     probe.add_argument(
         "--dry-run", action="store_true", help="show targets without sending requests"
     )
+    metric = subparsers.add_parser(
+        "metric", help="compute and store one metric from an analysis CSV"
+    )
+    metric.add_argument("--input", type=Path, required=True, help="analysis CSV file")
+    metric.add_argument("--column", required=True, help="numeric source column")
+    metric.add_argument(
+        "--operator",
+        required=True,
+        choices=tuple(_METRIC_OPERATORS),
+        help="scalar operation to compute",
+    )
+    metric.add_argument(
+        "--env-file", type=Path, help="dotenv file (default: .env in working directory)"
+    )
     return parser
+
+
+def _metric(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    overrides = {"env_file": args.env_file} if args.env_file is not None else {}
+    try:
+        settings = MetricSettings.resolve(overrides)
+        result = MetricProcessor(settings).process_file(
+            args.input,
+            args.column,
+            _METRIC_OPERATORS[args.operator],
+        )
+    except TelegentError as error:
+        parser.error(str(error))
+
+    value = "NaN" if not math.isfinite(result.value) else repr(result.value)
+    print(f"source: {result.source_id}")
+    print(f"metric: {result.metric_key}")
+    print(f"value: {value}")
+    print(f"database: {result.database_path}")
+    return 0
 
 
 def _test(args: argparse.Namespace) -> int:
