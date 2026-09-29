@@ -163,11 +163,15 @@ frame numbers and timestamps, together with these measurements:
 - request completion to final HTTP 200 response headers
 - request completion to first response body data
 - final HTTP 200 response headers to first response body data
+- first response body data to the first SSE event whose top-level JSON `type`
+  contains `delta`
 
 For HTTP/1.1, Telegent verifies the decrypted status using Wireshark's parsed
 `http.response.code` field. For HTTP/2, it correlates frames by TCP stream and
-HTTP/2 stream ID. SNI is included only as debugging metadata and does not affect
-classification or timing.
+HTTP/2 stream ID and reassembles SSE events across DATA frames. The streaming
+token metric currently supports HTTP/2; its CSV value is blank for HTTP/1.1.
+SNI is included only as debugging metadata and does not affect classification
+or timing.
 
 ## Library API
 
