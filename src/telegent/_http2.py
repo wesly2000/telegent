@@ -1,13 +1,23 @@
 """HTTP/2 transaction correlation."""
 
-from collections.abc import Callable, Sequence
+import re
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 
-from ._capture import Http2Frame, Packet, http2_frames, split_values
+from ._capture import (
+    Http2Frame,
+    Packet,
+    http2_data_fragments,
+    http2_frames,
+    split_values,
+)
 from ._transaction import TransactionBuilder
 from .models import HttpRequest
 
 RequestClassifier = Callable[[HttpRequest], bool]
+StreamingEventClassifier = Callable[[bytes], bool]
+
+_SSE_EVENT_END = re.compile(rb"\r?\n\r?\n")
 
 
 def build_http2_transactions(
@@ -21,6 +31,42 @@ def build_http2_transactions(
     builders = _find_requests(pcap, packets, sni_by_stream, request_classifier)
     _find_response_points(packets, builders)
     return list(builders.values())
+
+
+def find_first_streaming_tokens(
+    packets: Iterable[Packet],
+    builders: Sequence[TransactionBuilder],
+    event_classifier: StreamingEventClassifier,
+) -> None:
+    """Attach the first matching complete SSE event to HTTP/2 transactions."""
+
+    builders_by_stream = {
+        (builder.tcp_stream, builder.http2_stream_id): builder
+        for builder in builders
+        if builder.http2_stream_id is not None
+    }
+    buffers: dict[tuple[int, int], bytearray] = {}
+    for packet in packets:
+        for stream_id, payload in http2_data_fragments(packet):
+            key = (packet.tcp_stream, stream_id)
+            builder = builders_by_stream.get(key)
+            if (
+                builder is None
+                or builder.response_status != 200
+                or builder.response_headers is None
+                or builder.first_streaming_token is not None
+                or packet.endpoint == builder.request_endpoint
+            ):
+                continue
+            buffer = buffers.setdefault(key, bytearray())
+            buffer.extend(payload)
+            while match := _SSE_EVENT_END.search(buffer):
+                event = bytes(buffer[: match.start()])
+                del buffer[: match.end()]
+                if event_classifier(event):
+                    builder.first_streaming_token = packet.frame
+                    buffers.pop(key, None)
+                    break
 
 
 def _find_requests(

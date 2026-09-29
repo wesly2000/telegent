@@ -37,6 +37,7 @@ class HttpTransaction:
     response_headers: FramePoint | None
     first_response_data: FramePoint | None
     diagnostics: tuple[str, ...] = ()
+    first_streaming_token: FramePoint | None = None
 
     def request_to_response_headers_ms(self) -> float | None:
         """Return milliseconds from request completion to HTTP 200 headers."""
@@ -54,6 +55,14 @@ class HttpTransaction:
         return self._successful_elapsed_ms(
             self.response_headers,
             self.first_response_data,
+        )
+
+    def first_response_data_to_first_streaming_token_ms(self) -> float | None:
+        """Return milliseconds from first response data to the first token event."""
+
+        return self._successful_elapsed_ms(
+            self.first_response_data,
+            self.first_streaming_token,
         )
 
     def _successful_elapsed_ms(

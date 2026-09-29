@@ -12,6 +12,13 @@ from .models import HttpRequest
 RequestClassifier = Callable[[HttpRequest], bool]
 
 
+def find_first_streaming_tokens(*_: object) -> None:
+    """Reserve the HTTP/1.1 token-event extraction interface."""
+
+    # TODO: Implement HTTP/1.1 response-body SSE extraction and correlation.
+    raise NotImplementedError("HTTP/1.1 streaming token extraction is not implemented")
+
+
 def build_http1_transactions(
     pcap: Path,
     reassembled_packets: Sequence[Packet],

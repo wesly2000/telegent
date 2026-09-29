@@ -20,6 +20,7 @@ class TransactionBuilder:
     response_status: int | None = None
     response_headers: FramePoint | None = None
     first_response_data: FramePoint | None = None
+    first_streaming_token: FramePoint | None = None
 
     def finish(self) -> HttpTransaction:
         """Create an immutable transaction and derive completeness diagnostics."""
@@ -33,8 +34,15 @@ class TransactionBuilder:
             diagnostics.append(f"http_status_{self.response_status}")
         elif self.first_response_data is None:
             diagnostics.append("missing_response_data")
+        elif self.http_version == "2" and self.first_streaming_token is None:
+            diagnostics.append("missing_streaming_token")
 
-        points = (self.request_end, self.response_headers, self.first_response_data)
+        points = (
+            self.request_end,
+            self.response_headers,
+            self.first_response_data,
+            self.first_streaming_token,
+        )
         timestamps = [point.timestamp_epoch for point in points if point is not None]
         if timestamps != sorted(timestamps):
             diagnostics.append("negative_timestamp_order")
@@ -51,4 +59,5 @@ class TransactionBuilder:
             response_headers=self.response_headers,
             first_response_data=self.first_response_data,
             diagnostics=tuple(dict.fromkeys(diagnostics)),
+            first_streaming_token=self.first_streaming_token,
         )

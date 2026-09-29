@@ -35,6 +35,7 @@ _CSV_FIELDS = (
     "request_to_first_response_data_ms",
     "response_headers_to_first_response_data_ms",
     "diagnostics",
+    "first_response_data_to_first_streaming_token_ms",
 )
 
 
@@ -356,6 +357,9 @@ def _csv_row(transaction: HttpTransaction) -> dict[str, object]:
             transaction.response_headers_to_first_response_data_ms()
         ),
         "diagnostics": ";".join(transaction.diagnostics),
+        "first_response_data_to_first_streaming_token_ms": _number(
+            transaction.first_response_data_to_first_streaming_token_ms()
+        ),
     }
 
 
@@ -384,6 +388,10 @@ def _print_summary(transactions: list[HttpTransaction]) -> None:
             (
                 "headers->data",
                 HttpTransaction.response_headers_to_first_response_data_ms,
+            ),
+            (
+                "data->token",
+                HttpTransaction.first_response_data_to_first_streaming_token_ms,
             ),
         )
         for label, measurement in metrics:
