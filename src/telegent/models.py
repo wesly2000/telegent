@@ -76,3 +76,20 @@ class HttpTransaction:
         if duration < 0:
             return None
         return float(duration * Decimal(1000))
+
+
+@dataclass(frozen=True)
+class SseEventSize:
+    """Size of one classified SSE delta event in a complete response."""
+
+    capture_path: Path
+    sni: str | None
+    http_version: Literal["1.1", "2"]
+    tcp_stream: int
+    http2_stream_id: int | None
+    request: HttpRequest
+    response_status: int
+    delta_index: int
+    event_type: str | None
+    # The heading bytes like "event:" or "data:", plus the tailed like "\n" are included in size count
+    event_size_bytes: int 
