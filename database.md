@@ -13,7 +13,7 @@ concurrent database.
 Two settings are required, either in the process environment or a dotenv file:
 
 ```dotenv
-TELEGENT_ANALYSIS_ROOT=/absolute/path/to/telegent-analysis
+TELEGENT_ANALYSIS_ROOT=/absolute/path/to/telegent-analysis/timing
 TELEGENT_METRICS_DB=/absolute/path/to/telegent-analysis/database.db
 ```
 
@@ -24,14 +24,18 @@ format: `database.db` is still CSV text, not SQLite. The `.db` suffix keeps it
 out of recursive `*.csv` input scans. Read it with CSV tooling, for example
 `pandas.read_csv("database.db")`, rather than `pandas.read_sql`.
 
+Use a feature-level analysis root because timing and SSE CSVs have different
+schemas: `telegent-analysis/timing` for timing columns, or
+`telegent-analysis/sse` for `event_size_bytes`.
+
 ## Table schema
 
 The first column is always `source_id`. Every remaining column is a metric:
 
 ```csv
 source_id,mean__request_to_response_headers_ms,p95__request_to_response_headers_ms
-chat/deepseek/timing/official_01.csv,123.4,180.2
-chat/glm/timing/official_01.csv,NaN,205.1
+chat/deepseek/official_01.csv,123.4,180.2
+chat/glm/official_01.csv,NaN,205.1
 ```
 
 The database has these invariants:
@@ -53,13 +57,13 @@ suffix:
 
 ```text
 Absolute input:
-  /srv/telegent-analysis/chat/deepseek/timing/official_01.csv
+  /srv/telegent-analysis/timing/chat/deepseek/official_01.csv
 
 Configured root:
-  /srv/telegent-analysis
+  /srv/telegent-analysis/timing
 
 Stored source_id:
-  chat/deepseek/timing/official_01.csv
+  chat/deepseek/official_01.csv
 ```
 
 This convention provides three useful properties:
@@ -160,15 +164,15 @@ For example, starting with:
 
 ```csv
 source_id,mean__latency_ms
-chat/deepseek/timing/official_01.csv,100.0
+chat/deepseek/official_01.csv,100.0
 ```
 
 Computing `p95` for a new GLM source produces:
 
 ```csv
 source_id,mean__latency_ms,p95__latency_ms
-chat/deepseek/timing/official_01.csv,100.0,NaN
-chat/glm/timing/official_01.csv,NaN,180.0
+chat/deepseek/official_01.csv,100.0,NaN
+chat/glm/official_01.csv,NaN,180.0
 ```
 
 Recomputing `mean__latency_ms` for the DeepSeek source replaces `100.0` in

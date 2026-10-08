@@ -14,7 +14,7 @@ from .collector import CaptureResult, CaptureRunner, CaptureSettings
 from .collector.config import validate_all_targets
 from .errors import CaptureError
 from .metrics import Mean, MetricProcessor, MetricSettings, P50, P95, Std
-from .models import FramePoint, HttpTransaction
+from .models import FramePoint, HttpTransaction, SseEventSize
 from .probe import EndpointProbe, ProbeSettings
 
 _CSV_FIELDS = (
@@ -37,6 +37,20 @@ _CSV_FIELDS = (
     "response_headers_to_first_response_data_ms",
     "diagnostics",
     "first_response_data_to_first_streaming_token_ms",
+)
+
+_SSE_CSV_FIELDS = (
+    "capture_path",
+    "sni",
+    "http_version",
+    "tcp_stream",
+    "http2_stream_id",
+    "request_method",
+    "request_path",
+    "response_status",
+    "delta_index",
+    "event_type",
+    "event_size_bytes",
 )
 
 _METRIC_OPERATORS = {
@@ -68,16 +82,30 @@ def _analyze(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     analyzer = TsharkAnalyzer()
     try:
         if args.capture_dir is not None:
-            return _analyze_directory(analyzer, args.capture_dir, args.analysis_dir)
+            return _analyze_directory(
+                analyzer,
+                args.capture_dir,
+                args.analysis_dir,
+                args.analysis_mode,
+            )
 
-        transactions: list[HttpTransaction] = []
-        for pcap, keylog in args.inputs:
-            transactions.extend(analyzer.analyze_capture(pcap, keylog))
-        _write_csv(args.output, transactions)
+        if args.analysis_mode == "timing":
+            transactions: list[HttpTransaction] = []
+            for pcap, keylog in args.inputs:
+                transactions.extend(analyzer.analyze_capture(pcap, keylog))
+            _write_csv(args.output, transactions)
+            _print_summary(transactions)
+        elif args.analysis_mode == "sse":
+            measurements: list[SseEventSize] = []
+            for pcap, keylog in args.inputs:
+                measurements.extend(analyzer.analyze_sse_capture(pcap, keylog))
+            _write_sse_csv(args.output, measurements)
+            _print_sse_summary(measurements)
+        else:
+            raise NotImplementedError(args.analysis_mode)
     except (OSError, TelegentError) as error:
         parser.error(str(error))
 
-    _print_summary(transactions)
     return 0
 
 
@@ -85,6 +113,22 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="telegent")
     subparsers = parser.add_subparsers(dest="command", required=True)
     analyze = subparsers.add_parser("analyze", help="analyze TLS-decryptable pcaps")
+    analysis_modes = analyze.add_mutually_exclusive_group()
+    analysis_modes.add_argument(
+        "--timing",
+        dest="analysis_mode",
+        action="store_const",
+        const="timing",
+        help="write transaction timing measurements (default)",
+    )
+    analysis_modes.add_argument(
+        "--sse",
+        dest="analysis_mode",
+        action="store_const",
+        const="sse",
+        help="write complete-response SSE delta event sizes",
+    )
+    analyze.set_defaults(analysis_mode="timing")
     analysis_inputs = analyze.add_mutually_exclusive_group(required=True)
     analysis_inputs.add_argument(
         "--input",
@@ -98,7 +142,7 @@ def _parser() -> argparse.ArgumentParser:
     analysis_inputs.add_argument(
         "--capture-dir",
         type=Path,
-        help="directory containing pcaps and sslkeys.key for batch analysis",
+        help="capture tree containing pcaps with neighboring sslkeys.key files",
     )
     analysis_outputs = analyze.add_mutually_exclusive_group(required=True)
     analysis_outputs.add_argument(
@@ -109,7 +153,7 @@ def _parser() -> argparse.ArgumentParser:
     analysis_outputs.add_argument(
         "--analysis-dir",
         type=Path,
-        help="root directory for batch results; CSV files are written under timing/",
+        help="root for recursively mirrored results under timing/ or sse/",
     )
     capture = subparsers.add_parser(
         "capture", help="run a Codex sequence while capturing its network traffic"
@@ -346,34 +390,40 @@ def _positive_integer(value: str) -> int:
 
 
 def _analyze_directory(
-    analyzer: TsharkAnalyzer, capture_dir: Path, analysis_dir: Path
+    analyzer: TsharkAnalyzer,
+    capture_dir: Path,
+    analysis_dir: Path,
+    analysis_mode: str,
 ) -> int:
     if not capture_dir.is_dir():
         raise TelegentError(f"capture directory does not exist: {capture_dir}")
 
-    pcaps = sorted(
-        path
-        for path in capture_dir.iterdir()
-        if path.is_file() and path.suffix == ".pcap"
-    )
+    pcaps = sorted(path for path in capture_dir.rglob("*.pcap") if path.is_file())
     if not pcaps:
         raise TelegentError(f"no .pcap files found in capture directory: {capture_dir}")
 
-    keylog = capture_dir / "sslkeys.key"
-    timing_dir = analysis_dir / "timing"
     analyzed = 0
     skipped = 0
     for pcap in pcaps:
-        output = timing_dir / f"{pcap.stem}.csv"
+        relative_output = pcap.relative_to(capture_dir).with_suffix(".csv")
+        output = analysis_dir / analysis_mode / relative_output
         if output.is_file():
             print(f"skipped {pcap}: {output} already exists")
             skipped += 1
             continue
 
-        transactions = analyzer.analyze_capture(pcap, keylog)
-        _write_csv(output, transactions)
+        keylog = pcap.parent / "sslkeys.key"
+        if analysis_mode == "timing":
+            transactions = analyzer.analyze_capture(pcap, keylog)
+            _write_csv(output, transactions)
+            _print_summary(transactions)
+        elif analysis_mode == "sse":
+            measurements = analyzer.analyze_sse_capture(pcap, keylog)
+            _write_sse_csv(output, measurements)
+            _print_sse_summary(measurements)
+        else:
+            raise NotImplementedError(analysis_mode)
         print(f"analyzed {pcap} -> {output}")
-        _print_summary(transactions)
         analyzed += 1
 
     print(f"batch analysis complete: {analyzed} analyzed, {skipped} skipped")
@@ -387,6 +437,31 @@ def _write_csv(path: Path, transactions: Iterable[HttpTransaction]) -> None:
         writer.writeheader()
         for transaction in transactions:
             writer.writerow(_csv_row(transaction))
+
+
+def _write_sse_csv(path: Path, measurements: Iterable[SseEventSize]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as output:
+        writer = csv.DictWriter(output, fieldnames=_SSE_CSV_FIELDS)
+        writer.writeheader()
+        for measurement in measurements:
+            writer.writerow(_sse_csv_row(measurement))
+
+
+def _sse_csv_row(measurement: SseEventSize) -> dict[str, object]:
+    return {
+        "capture_path": str(measurement.capture_path),
+        "sni": measurement.sni or "",
+        "http_version": measurement.http_version,
+        "tcp_stream": measurement.tcp_stream,
+        "http2_stream_id": measurement.http2_stream_id or "",
+        "request_method": measurement.request.method,
+        "request_path": measurement.request.path,
+        "response_status": measurement.response_status,
+        "delta_index": measurement.delta_index,
+        "event_type": measurement.event_type or "",
+        "event_size_bytes": measurement.event_size_bytes,
+    }
 
 
 def _csv_row(transaction: HttpTransaction) -> dict[str, object]:
@@ -463,6 +538,21 @@ def _print_summary(transactions: list[HttpTransaction]) -> None:
                     f"  {label}: median={statistics.median(values):.3f} ms, "
                     f"p95={_percentile_95(values):.3f} ms"
                 )
+
+
+def _print_sse_summary(measurements: list[SseEventSize]) -> None:
+    by_capture: dict[Path, list[SseEventSize]] = {}
+    for measurement in measurements:
+        by_capture.setdefault(measurement.capture_path, []).append(measurement)
+    for capture, capture_measurements in by_capture.items():
+        stream_ids = {
+            (measurement.tcp_stream, measurement.http2_stream_id)
+            for measurement in capture_measurements
+        }
+        print(
+            f"{capture}: {len(capture_measurements)} SSE delta events "
+            f"from {len(stream_ids)} complete responses"
+        )
 
 
 def _percentile_95(values: list[float]) -> float:

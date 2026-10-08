@@ -134,7 +134,7 @@ TELEGENT_MODEL_PROVIDER=openrouter \
 
 ### Analysis
 
-Analyze one or more capture/key-log pairs:
+Timing analysis remains the default. Analyze one or more capture/key-log pairs:
 
 ```bash
 telegent analyze \
@@ -143,19 +143,29 @@ telegent analyze \
   --output timings.csv
 ```
 
-Analyze every `.pcap` directly inside one capture directory:
+Use `--sse` to write one row per delta event in a complete SSE response:
 
 ```bash
-telegent analyze \
-  --capture-dir test-capture/chat/deepseek \
-  --analysis-dir test-analysis/chat/deepseek
+telegent analyze --sse \
+  --input telegent-capture/chat/minimax/official_01.pcap \
+          telegent-capture/chat/minimax/sslkeys.key \
+  --output minimax-sse.csv
 ```
 
-Batch analysis uses `sslkeys.key` from the capture directory and writes one CSV
-per capture to the analysis directory's `timing/` subdirectory. Each CSV keeps
-the capture's base name, such as `openrouter_01.pcap` becoming
-`timing/openrouter_01.csv`. Captures whose destination CSV already exists are
-skipped without overwriting the existing result.
+Batch analysis recursively mirrors a capture tree below a feature directory:
+
+```bash
+telegent analyze --sse \
+  --capture-dir telegent-capture \
+  --analysis-dir telegent-analysis
+```
+
+For every discovered `.pcap`, batch analysis uses `sslkeys.key` from that
+capture's directory. It writes one CSV beneath `timing/` or `sse/` and retains
+the path relative to the capture root. For example,
+`telegent-capture/chat/minimax/official_01.pcap` becomes
+`telegent-analysis/sse/chat/minimax/official_01.csv`. Captures whose
+mode-specific destination already exists are skipped without overwriting it.
 
 The CSV contains the request-completion, response-header, and first-response-data
 frame numbers and timestamps, together with these measurements:
@@ -173,13 +183,26 @@ token metric currently supports HTTP/2; its CSV value is blank for HTTP/1.1.
 SNI is included only as debugging metadata and does not affect classification
 or timing.
 
+SSE analysis accepts successful `text/event-stream` responses using HTTP/1.1
+or HTTP/2. It emits only events whose top-level JSON `type` contains `delta`.
+`event_size_bytes` is the exact UTF-8 size from the event's first field through
+its terminating blank line, including field names, spaces, and original line
+endings. Comment-only blocks such as `: keepalive` are ignored.
+
+Delta rows are staged until Telegent observes `data: [DONE]`, a
+`response.completed` event, or a clean HTTP response end with no partial SSE
+block. If none of those completion conditions is present, all rows for that
+response are discarded. HTTP/2 DATA payloads are read from their original
+frame bytes, so tshark's generated reassembled-body fields cannot duplicate
+events.
+
 ### Metrics database
 
 Telegent can compute a scalar metric from a numeric analysis CSV column and
 upsert it into a persistent wide CSV database. Configure both paths in `.env`:
 
 ```dotenv
-TELEGENT_ANALYSIS_ROOT=/absolute/path/to/telegent-analysis
+TELEGENT_ANALYSIS_ROOT=/absolute/path/to/telegent-analysis/timing
 TELEGENT_METRICS_DB=/absolute/path/to/telegent-analysis/database.db
 ```
 
@@ -187,7 +210,7 @@ Then run one operation:
 
 ```bash
 telegent metric \
-  --input /absolute/path/to/telegent-analysis/chat/deepseek/timing/official_01.csv \
+  --input /absolute/path/to/telegent-analysis/timing/chat/deepseek/official_01.csv \
   --column request_to_response_headers_ms \
   --operator p95
 ```
@@ -196,13 +219,22 @@ To apply the same operator and column to every `.csv` below an analysis root:
 
 ```bash
 telegent metric \
-  --root /absolute/path/to/telegent-analysis \
+  --root /absolute/path/to/telegent-analysis/timing \
   --column request_to_response_headers_ms \
   --operator p95
 ```
 
 The scan is recursive and deterministic. Files without a `.csv` suffix are
 ignored, so the CSV-formatted `database.db` is not treated as an input.
+For SSE statistics, configure or pass `telegent-analysis/sse` as the root and
+use `event_size_bytes` as the source column, for example:
+
+```bash
+telegent metric \
+  --root /absolute/path/to/telegent-analysis/sse \
+  --column event_size_bytes \
+  --operator mean
+```
 
 The built-in operators are `mean`, `std`, `p50`, and `p95`. Database rows use
 the input path relative to `TELEGENT_ANALYSIS_ROOT`, and metric columns use
@@ -210,8 +242,8 @@ the input path relative to `TELEGENT_ANALYSIS_ROOT`, and metric columns use
 
 ```csv
 source_id,mean__request_to_response_headers_ms,p95__request_to_response_headers_ms
-chat/deepseek/timing/official_01.csv,123.4,180.2
-chat/glm/timing/official_01.csv,NaN,205.1
+chat/deepseek/official_01.csv,123.4,180.2
+chat/glm/official_01.csv,NaN,205.1
 ```
 
 New rows and columns are appended, uncomputed cells contain literal `NaN`, and
@@ -233,6 +265,11 @@ transactions = TsharkAnalyzer().analyze_capture(
     capture.ssl_keylog_path,
 )
 
+delta_sizes = TsharkAnalyzer().analyze_sse_capture(
+    capture.pcap_path,
+    capture.ssl_keylog_path,
+)
+
 for transaction in transactions:
     print(transaction.request_to_response_headers_ms())
 ```
@@ -244,7 +281,7 @@ from telegent import Mean, MetricProcessor, MetricSettings
 
 settings = MetricSettings.resolve()
 result = MetricProcessor(settings).process_file(
-    settings.analysis_root / "chat/deepseek/timing/official_01.csv",
+    settings.analysis_root / "chat/deepseek/official_01.csv",
     "request_to_response_headers_ms",
     Mean(),
 )
