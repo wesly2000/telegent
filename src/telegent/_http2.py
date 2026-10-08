@@ -158,6 +158,16 @@ def _apply_response_headers(
         return
     builder.response_status = final_statuses[0]
     builder.response_headers = packet.frame
+    content_types = split_values(
+        packet.values.get("http2.headers.content_type", "")
+    )
+    content_encodings = split_values(
+        packet.values.get("http2.headers.content_encoding", "")
+    )
+    builder.response_content_type = content_types[0] if content_types else None
+    builder.response_content_encoding = (
+        content_encodings[0] if content_encodings else None
+    )
     if any(
         frame.frame_type == 0 and frame.stream_id == builder.http2_stream_id
         for frame in frames

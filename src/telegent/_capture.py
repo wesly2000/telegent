@@ -27,6 +27,8 @@ COMMON_FIELDS = (
     "http2.headers.method",
     "http2.headers.path",
     "http2.headers.status",
+    "http2.headers.content_type",
+    "http2.headers.content_encoding",
     "http.request.method",
     "http.request.uri",
 )
@@ -42,7 +44,7 @@ HTTP2_DATA_FIELDS = (
     "http2.type",
     "http2.length",
     "http2.flags",
-    "http2.data.data",
+    "@http2.stream",
 )
 
 HTTP1_FIELDS = (
@@ -57,7 +59,16 @@ HTTP1_FIELDS = (
     "http.response.code",
     "http.request_in",
     "http.response_in",
+    "http.content_type",
+    "http.content_encoding",
     "http.file_data",
+)
+
+HTTP1_BODY_FIELDS = HTTP1_FIELDS + (
+    "http.transfer_encoding",
+    "http.content_length",
+    "http.chunk_size",
+    "tcp.flags.fin",
 )
 
 
@@ -237,6 +248,39 @@ def http2_frames(packet: Packet) -> list[Http2Frame]:
 
 def http2_data_fragments(packet: Packet) -> list[tuple[int, bytes]]:
     """Return original positive-length DATA payloads, excluding body duplicates."""
+
+    raw_frames = split_values(packet.values.get("@http2.stream", ""))
+    if raw_frames:
+        fragments = []
+        for raw_frame in raw_frames:
+            try:
+                encoded = bytes.fromhex(raw_frame.replace(":", ""))
+            except ValueError:
+                continue
+            offset = 0
+            while len(encoded) - offset >= 9:
+                length = int.from_bytes(encoded[offset : offset + 3], "big")
+                end = offset + 9 + length
+                if end > len(encoded):
+                    break
+                frame_type = encoded[offset + 3]
+                flags = encoded[offset + 4]
+                stream_id = (
+                    int.from_bytes(encoded[offset + 5 : offset + 9], "big")
+                    & 0x7FFF_FFFF
+                )
+                payload = encoded[offset + 9 : end]
+                offset = end
+                if frame_type != 0 or not payload:
+                    continue
+                if flags & 0x08:
+                    padding = payload[0]
+                    if padding >= len(payload):
+                        continue
+                    payload = payload[1 : len(payload) - padding]
+                if payload:
+                    fragments.append((stream_id, payload))
+        return fragments
 
     payloads = split_values(packet.values.get("http2.data.data", ""))
     payload_index = 0

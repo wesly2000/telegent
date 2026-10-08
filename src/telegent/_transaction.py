@@ -19,6 +19,8 @@ class TransactionBuilder:
     request_end: FramePoint | None = None
     response_status: int | None = None
     response_headers: FramePoint | None = None
+    response_content_type: str | None = None
+    response_content_encoding: str | None = None
     first_response_data: FramePoint | None = None
     first_streaming_token: FramePoint | None = None
 

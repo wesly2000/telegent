@@ -118,6 +118,13 @@ def _find_response_headers(
             continue
         builder.response_status = int(status_text.split(",", 1)[0])
         builder.response_headers = packet.frame
+        builder.response_content_type = (
+            packet.values.get("http.content_type", "").split(",", 1)[0] or None
+        )
+        builder.response_content_encoding = (
+            packet.values.get("http.content_encoding", "").split(",", 1)[0]
+            or None
+        )
         if packet.values.get("http.file_data", ""):
             builder.first_response_data = packet.frame
 
