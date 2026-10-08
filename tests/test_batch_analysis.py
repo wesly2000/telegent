@@ -7,11 +7,18 @@ from telegent.cli import main
 
 class FakeAnalyzer:
     calls: list[tuple[Path, Path]] = []
+    sse_calls: list[tuple[Path, Path]] = []
 
     def analyze_capture(
         self, pcap_path: Path | str, keylog_path: Path | str
     ) -> list[object]:
         self.calls.append((Path(pcap_path), Path(keylog_path)))
+        return []
+
+    def analyze_sse_capture(
+        self, pcap_path: Path | str, keylog_path: Path | str
+    ) -> list[object]:
+        self.sse_calls.append((Path(pcap_path), Path(keylog_path)))
         return []
 
 
@@ -53,6 +60,7 @@ def test_batch_analysis_writes_one_csv_per_new_pcap_and_skips_existing(
     nested = capture_dir / "nested"
     nested.mkdir()
     (nested / "nested.pcap").touch()
+    (nested / "sslkeys.key").touch()
 
     analysis_dir = tmp_path / "analysis"
     timing_dir = analysis_dir / "timing"
@@ -75,21 +83,57 @@ def test_batch_analysis_writes_one_csv_per_new_pcap_and_skips_existing(
 
     assert result == 0
     assert FakeAnalyzer.calls == [
+        (capture_dir / "nested/nested.pcap", capture_dir / "nested/sslkeys.key"),
         (capture_dir / "official_01.pcap", capture_dir / "sslkeys.key"),
         (capture_dir / "openrouter_02.pcap", capture_dir / "sslkeys.key"),
     ]
-    assert sorted(path.name for path in timing_dir.iterdir()) == [
+    assert sorted(path.name for path in timing_dir.iterdir() if path.is_file()) == [
         "official_01.csv",
         "openrouter_01.csv",
         "openrouter_02.csv",
     ]
     assert existing.read_text(encoding="utf-8") == "existing result\n"
+    assert (timing_dir / "nested/nested.csv").is_file()
     assert (timing_dir / "official_01.csv").read_text(encoding="utf-8").startswith(
         "capture_path,sni,http_version"
     )
     output = capsys.readouterr().out  # type: ignore[attr-defined]
     assert f"skipped {capture_dir / 'openrouter_01.pcap'}" in output
-    assert "batch analysis complete: 2 analyzed, 1 skipped" in output
+    assert "batch analysis complete: 3 analyzed, 1 skipped" in output
+
+
+def test_batch_sse_analysis_uses_feature_first_mirrored_layout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    capture_dir = tmp_path / "telegent-capture"
+    model_dir = capture_dir / "chat/minimax"
+    model_dir.mkdir(parents=True)
+    pcap = model_dir / "official_01.pcap"
+    keylog = model_dir / "sslkeys.key"
+    pcap.touch()
+    keylog.touch()
+    analysis_dir = tmp_path / "telegent-analysis"
+
+    FakeAnalyzer.sse_calls = []
+    monkeypatch.setattr("telegent.cli.TsharkAnalyzer", FakeAnalyzer)
+
+    result = main(
+        [
+            "analyze",
+            "--sse",
+            "--capture-dir",
+            str(capture_dir),
+            "--analysis-dir",
+            str(analysis_dir),
+        ]
+    )
+
+    assert result == 0
+    assert FakeAnalyzer.sse_calls == [(pcap, keylog)]
+    output = analysis_dir / "sse/chat/minimax/official_01.csv"
+    assert output.read_text(encoding="utf-8").startswith(
+        "capture_path,sni,http_version,tcp_stream,http2_stream_id"
+    )
 
 
 @pytest.mark.parametrize(
@@ -102,5 +146,23 @@ def test_batch_analysis_writes_one_csv_per_new_pcap_and_skips_existing(
 def test_analysis_input_and_output_modes_must_match(arguments: list[str]) -> None:
     with pytest.raises(SystemExit) as raised:
         main(["analyze", *arguments])
+
+    assert raised.value.code == 2
+
+
+def test_analysis_modes_are_mutually_exclusive() -> None:
+    with pytest.raises(SystemExit) as raised:
+        main(
+            [
+                "analyze",
+                "--timing",
+                "--sse",
+                "--input",
+                "capture.pcap",
+                "keys.log",
+                "--output",
+                "result.csv",
+            ]
+        )
 
     assert raised.value.code == 2

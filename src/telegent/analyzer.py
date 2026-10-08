@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ._capture import (
     COMMON_FIELDS,
+    HTTP1_BODY_FIELDS,
     HTTP1_FIELDS,
     HTTP2_DATA_FIELDS,
     TsharkRunner,
@@ -14,9 +15,10 @@ from ._capture import (
 )
 from ._http1 import build_http1_transactions
 from ._http2 import build_http2_transactions, find_first_streaming_tokens
+from ._sse import extract_http1_delta_sizes, extract_http2_delta_sizes
 from .classifier import is_llm_request, is_streaming_token_event
 from .errors import TelegentError
-from .models import HttpRequest, HttpTransaction
+from .models import HttpRequest, HttpTransaction, SseEventSize
 
 RequestClassifier = Callable[[HttpRequest], bool]
 StreamingEventClassifier = Callable[[bytes], bool]
@@ -98,6 +100,80 @@ class TsharkAnalyzer:
         transactions = [builder.finish() for builder in builders]
         return sorted(transactions, key=_transaction_order)
 
+    def analyze_sse_capture(
+        self,
+        pcap_path: Path | str,
+        keylog_path: Path | str,
+    ) -> list[SseEventSize]:
+        """Measure delta-event sizes in complete LLM SSE responses."""
+
+        pcap = Path(pcap_path)
+        keylog = Path(keylog_path)
+        _validate_inputs(pcap, keylog)
+
+        common_rows = self._runner.fields(
+            pcap,
+            keylog,
+            COMMON_FIELDS,
+            "tls.handshake.extensions_server_name || http2 || http.request.method",
+        )
+        http1_header_rows = self._runner.fields(
+            pcap,
+            keylog,
+            HTTP1_FIELDS,
+            "http.request.method || http.response.code || http.file_data",
+            ("http.desegment_headers:TRUE", "http.desegment_body:FALSE"),
+        )
+        common_packets = list(packets(common_rows))
+        http1_header_packets = list(packets(http1_header_rows))
+        sni_by_stream = collect_sni(common_packets)
+
+        http2_builders = build_http2_transactions(
+            pcap,
+            common_packets,
+            sni_by_stream,
+            self._request_classifier,
+        )
+        measurements: list[SseEventSize] = []
+        if http2_builders:
+            http2_rows = self._runner.iter_fields(
+                pcap,
+                keylog,
+                HTTP2_DATA_FIELDS,
+                "http2.type == 0 && http2.length > 0",
+            )
+            measurements.extend(
+                extract_http2_delta_sizes(
+                    packets(http2_rows),
+                    common_packets,
+                    http2_builders,
+                    self._streaming_event_classifier,
+                )
+            )
+
+        http1_builders = build_http1_transactions(
+            pcap,
+            common_packets,
+            http1_header_packets,
+            sni_by_stream,
+            self._request_classifier,
+        )
+        if http1_builders:
+            http1_body_rows = self._runner.iter_fields(
+                pcap,
+                keylog,
+                HTTP1_BODY_FIELDS,
+                "http.response.code || http.file_data",
+            )
+            measurements.extend(
+                extract_http1_delta_sizes(
+                    list(packets(http1_body_rows)),
+                    http1_builders,
+                    self._streaming_event_classifier,
+                )
+            )
+        return sorted(measurements, key=_sse_measurement_order)
+
 
 def _validate_inputs(pcap: Path, keylog: Path) -> None:
     if not pcap.is_file():
@@ -113,3 +189,11 @@ def _transaction_order(transaction: HttpTransaction) -> tuple[Decimal, int, int]
         else Decimal("Infinity")
     )
     return timestamp, transaction.tcp_stream, transaction.http2_stream_id or 0
+
+
+def _sse_measurement_order(measurement: SseEventSize) -> tuple[int, int, int]:
+    return (
+        measurement.tcp_stream,
+        measurement.http2_stream_id or 0,
+        measurement.delta_index,
+    )

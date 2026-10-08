@@ -14,7 +14,7 @@ from .metrics import (
     P95,
     Std,
 )
-from .models import FramePoint, HttpRequest, HttpTransaction
+from .models import FramePoint, HttpRequest, HttpTransaction, SseEventSize
 from .probe import EndpointProbe, ProbeResult, ProbeSettings
 
 __all__ = [
@@ -26,6 +26,7 @@ __all__ = [
     "FramePoint",
     "HttpRequest",
     "HttpTransaction",
+    "SseEventSize",
     "Mean",
     "MetricProcessor",
     "MetricResult",
