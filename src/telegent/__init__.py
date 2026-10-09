@@ -13,6 +13,7 @@ from .metrics import (
     P50,
     P95,
     Std,
+    kde_modes,
 )
 from .models import FramePoint, HttpRequest, HttpTransaction, SseEventSize
 from .probe import EndpointProbe, ProbeResult, ProbeSettings
@@ -42,4 +43,5 @@ __all__ = [
     "Std",
     "is_llm_request",
     "is_streaming_token_event",
+    "kde_modes",
 ]
