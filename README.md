@@ -11,7 +11,7 @@ HTTP requests. It uses `tshark` and a TLS key log to identify `/responses` and
 - A TLS key log that can decrypt the capture
 - Bash for automated capture workloads
 
-## Usage
+## Automated capture
 
 Install the package in a virtual environment:
 
@@ -20,17 +20,83 @@ python -m pip install ./telegent
 ```
 
 Copy `.env.example` to `.env`, set the local paths and provider API keys, then
-capture a configured model/provider pair:
+select the agent explicitly when capturing a configured model/provider pair:
 
 ```bash
-telegent capture deepseek openrouter
+telegent capture --agent codex deepseek openrouter
+telegent capture --agent opencode deepseek official
 ```
+
+`TELEGENT_AGENT_BINARY` must point to the matching executable. In particular,
+OpenCode traffic is decryptable only when this is the OpenCode executable built
+with the customized Bun runtime. `TELEGENT_AGENT_CONFIG_ROOT` is shared as a
+root name, but the configuration below each model is agent-native.
+
+### Codex configuration
+
+Codex retains its existing layout:
+
+```text
+agent-config/deepseek/
+├── config.toml
+├── models.json                 # optional
+└── openrouter.config.toml
+```
+
+`config.toml` defines `[model_providers.<provider>]`; the matching
+`<provider>.config.toml` selects the provider and model. If `models.json`
+exists, Telegent supplies it to Codex as `model_catalog_json` on every turn.
+
+### OpenCode configuration
+
+OpenCode uses one complete native config per logical provider. Use exactly one
+of these extensions for each provider:
+
+```text
+agent-config/deepseek/
+├── official.opencode.jsonc
+└── openrouter.opencode.json
+```
+
+Every file must contain a top-level `model` in `provider/model` form. JSONC is
+supported, including comments and trailing commas. The rest of the object is
+passed to OpenCode without translating it into Codex settings, so it may define
+providers, model options, agents, and instructions. For example:
+
+```jsonc
+{
+  "model": "deepseek/deepseek-chat",
+  "provider": {
+    "deepseek": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "https://api.deepseek.com/v1",
+        "apiKey": "{env:DEEPSEEK_API_KEY}"
+      },
+      "models": {
+        "deepseek-chat": { "name": "DeepSeek Chat" }
+      }
+    }
+  }
+}
+```
+
+Use `@ai-sdk/openai-compatible` for Chat Completions-compatible providers and
+`@ai-sdk/openai` when the provider supports OpenAI's Responses API. Telegent
+validates every `{env:NAME}` reference before capture and rewrites relative
+`{file:path}` references relative to the selected config file. It passes the
+normalized object through `OPENCODE_CONFIG_CONTENT`, disables project config,
+model refreshes, updates and compaction, and creates capture-local XDG config,
+data, state and cache directories. It does not change `HOME`.
+
+### Capture controls
 
 To wait after each completed response before sending the next prompt from the
 prompt file, set an interval in seconds:
 
 ```bash
-telegent capture deepseek openrouter --request-interval-seconds 5
+telegent capture --agent opencode deepseek official \
+  --request-interval-seconds 5
 ```
 
 The interval can also be configured as `TELEGENT_REQUEST_INTERVAL_SECONDS` in
@@ -41,23 +107,23 @@ Pass a positive repetition count to collect multiple captures sequentially with
 the same resolved configuration:
 
 ```bash
-telegent capture deepseek openrouter 5
+telegent capture --agent opencode deepseek official 5
 ```
 
-To capture every provider in a model's `config.toml`, omit the provider and
-specify the number of rounds:
+To capture every provider, omit the provider and specify the number of rounds:
 
 ```bash
-telegent capture deepseek 5
+telegent capture --agent opencode deepseek 5
 ```
 
-Each round captures every provider once, sequentially, in `config.toml` order.
-`telegent capture deepseek` captures one round. All providers are validated
-before the first capture. For a background run from the directory containing
-`.env`:
+Codex uses `config.toml` provider order. OpenCode discovers
+`*.opencode.json[c]` files in lexical provider order. Each round captures every
+provider once and all providers are validated before the first capture. For a
+background run from the directory containing `.env`:
 
 ```bash
-nohup /home/lxyu/aitraffic/bin/telegent capture deepseek 5 \
+nohup /home/lxyu/aitraffic/bin/telegent capture \
+  --agent opencode deepseek 5 \
   > telegent-capture.log 2>&1 &
 ```
 
@@ -65,14 +131,11 @@ Each successful repetition receives its own provider-specific capture ID. If a
 repetition fails, Telegent stops immediately, preserves earlier successful
 captures, and returns a nonzero status.
 
-Telegent validates `codex-third-party/deepseek/config.toml`, the selected
-`openrouter.config.toml` profile, its API-key environment variable, and every
-executable before reserving a provider-specific capture ID. Use `--dry-run` to
-show the resolved paths and commands without reserving an ID or starting a
-process:
+Use `--dry-run` to validate configs, credentials and executables and show the
+resolved paths and commands without reserving an ID or starting a process:
 
 ```bash
-telegent capture deepseek openrouter --dry-run
+telegent capture --agent opencode deepseek official --dry-run
 ```
 
 Configuration is resolved in this order: command-line overrides, process
@@ -83,37 +146,37 @@ with `capture.json`, `capture.log`, and the sequence output under `agent/`.
 Failed captures remove their reserved artifacts, make the ID reusable, and keep
 a diagnostic log under the model's `failures/` directory.
 
-### Endpoint testing
+### Agent testing
 
-Test the configured provider URLs, API keys, and model IDs without running
-Codex or tshark:
+Test every provider configured for one model through the selected agent, without
+starting tshark:
 
 ```bash
-telegent test deepseek
-telegent test deepseek --provider openrouter
-telegent test deepseek --dry-run
+telegent test --agent codex deepseek
+telegent test --agent opencode deepseek
+telegent test --agent codex deepseek --provider openrouter
+telegent test --agent opencode deepseek --dry-run
 ```
 
-The command reads every `[model_providers.<provider>]` entry from the model's
-`config.toml` and its matching `<provider>.config.toml` profile. It sends one
-direct Responses API request containing `Hi` per provider and requires a
-completed response. The output reports each provider separately and exits
-nonzero if any provider fails or lacks credentials. `--dry-run` shows the URL,
-model ID, and API-key variable name without sending requests or printing keys.
-Failures include bounded response-status, incomplete-reason, and error-code
-details when available, but never the response body or API key.
-Use `--env-file`, `--codex-config-root`, or `--timeout-seconds` to override the
-normal dotenv/configuration lookup and the default 60-second request timeout.
+The command launches the actual Codex or OpenCode binary with a minimal `Hi`
+prompt for each provider configured under the requested model. It therefore
+tests the agent, its native configuration, the selected provider/model, and
+connectivity together. Providers are tested independently and reported
+separately; one failure does not prevent later providers from running. API keys
+and agent response bodies are never printed. `--provider` limits the run to one
+provider, while `--dry-run` validates and displays targets without starting the
+agent. Use `--env-file`, `--agent-config-root`, `--agent-binary`, or
+`--timeout-seconds` to override normal lookup.
 
-Telegent includes `codex-sequence.sh` and the manual `codex-deepseek.sh`,
+Telegent includes `codex-sequence.sh`, `opencode-sequence.sh`, and the manual `codex-deepseek.sh`,
 `codex-glm.sh`, `codex-grok.sh`, `codex-minimax.sh`, and `codex-openai.sh`
 launchers under `src/telegent/scripts`. The launchers have no machine-specific
 paths. They load these values from the process environment or `.env`, with
 existing process variables taking precedence:
 
-- `TELEGENT_CODEX_CONFIG_ROOT`
+- `TELEGENT_AGENT_CONFIG_ROOT`
 - `TELEGENT_CAPTURE_ROOT`
-- `TELEGENT_CODEX_BINARY`
+- `TELEGENT_AGENT_BINARY`
 - `TELEGENT_REQUEST_INTERVAL_SECONDS`
 
 Set `TELEGENT_ENV_FILE` in the process environment to select another dotenv
@@ -258,7 +321,8 @@ from pathlib import Path
 
 from telegent import CaptureRunner, CaptureSettings, TsharkAnalyzer
 
-capture = CaptureRunner(CaptureSettings.resolve()).collect("deepseek", "openrouter")
+settings = CaptureSettings.resolve({"agent": "opencode"})
+capture = CaptureRunner(settings).collect("deepseek", "official")
 
 transactions = TsharkAnalyzer().analyze_capture(
     capture.pcap_path,
