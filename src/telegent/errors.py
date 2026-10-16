@@ -4,7 +4,11 @@ from pathlib import Path
 
 
 class TelegentError(RuntimeError):
-    """Raised when a capture cannot be analyzed reliably."""
+    """Base class for user-facing Telegent failures."""
+
+
+class ConfigurationError(TelegentError):
+    """Raised when Telegent or agent configuration cannot be resolved."""
 
 
 class CaptureError(TelegentError):
