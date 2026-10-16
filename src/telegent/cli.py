@@ -196,18 +196,22 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="validate and print resolved paths and commands without starting processes",
     )
-    probe = subparsers.add_parser("test", help="test configured model provider endpoints")
-    probe.add_argument("model", help="Codex configuration directory name")
+    probe = subparsers.add_parser(
+        "test", help="test configured model providers through an agent"
+    )
+    probe.add_argument("--agent", choices=("codex", "opencode"), required=True)
+    probe.add_argument("model", help="agent configuration directory name")
     probe.add_argument("--provider", help="test only this provider (default: all)")
     probe.add_argument(
         "--env-file", type=Path, help="dotenv file (default: .env in working directory)"
     )
-    probe.add_argument("--codex-config-root", type=Path)
+    probe.add_argument("--agent-config-root", type=Path)
+    probe.add_argument("--agent-binary", type=Path)
     probe.add_argument(
-        "--timeout-seconds", type=float, help="request timeout (default: 60)"
+        "--timeout-seconds", type=float, help="agent timeout (default: 60)"
     )
     probe.add_argument(
-        "--dry-run", action="store_true", help="show targets without sending requests"
+        "--dry-run", action="store_true", help="show targets without starting the agent"
     )
     metric = subparsers.add_parser(
         "metric", help="compute and store metrics from analysis CSV files"
@@ -266,7 +270,13 @@ def _metric(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
 def _test(args: argparse.Namespace) -> int:
     overrides = {
         name: getattr(args, name)
-        for name in ("env_file", "codex_config_root", "timeout_seconds")
+        for name in (
+            "agent",
+            "env_file",
+            "agent_config_root",
+            "agent_binary",
+            "timeout_seconds",
+        )
         if getattr(args, name) is not None
     }
     try:
@@ -278,16 +288,17 @@ def _test(args: argparse.Namespace) -> int:
         print(f"telegent: error: {error}", file=sys.stderr)
         return 1
     if args.dry_run:
-        print(f"config root: {settings.codex_config_root}")
+        print(f"agent: {settings.agent}")
+        print(f"config root: {settings.agent_config_root}")
         print(f"dotenv file: {settings.env_file or '<not loaded>'}")
     for result in results:
         elapsed = f" ({result.elapsed_ms:.0f} ms)" if result.elapsed_ms is not None else ""
         print(f"{result.status} {result.provider}: {result.detail}{elapsed}")
     if args.dry_run:
-        print(f"dry run: {len(results)} provider(s); no requests sent")
+        print(f"dry run: {len(results)} provider(s); no agents started")
     else:
         passed = sum(result.status == "PASS" for result in results)
-        print(f"endpoint test complete: {passed}/{len(results)} passed")
+        print(f"agent test complete: {passed}/{len(results)} passed")
     return 0 if all(result.status in ("PASS", "READY") for result in results) else 1
 
 

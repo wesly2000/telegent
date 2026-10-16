@@ -1,6 +1,6 @@
-"""Minimal configured API endpoint probes."""
+"""Minimal provider probes executed through real agent binaries."""
 
+from ..configuration import ProbeSettings
 from .runner import EndpointProbe, ProbeResult
-from .settings import ProbeSettings
 
 __all__ = ["EndpointProbe", "ProbeResult", "ProbeSettings"]
