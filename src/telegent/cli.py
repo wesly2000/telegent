@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .analyzer import TelegentError, TsharkAnalyzer
 from .collector import CaptureResult, CaptureRunner, CaptureSettings
-from .collector.config import validate_all_targets
+from .collector.validation import validate_all_targets
 from .errors import CaptureError
 from .metrics import Mean, MetricProcessor, MetricSettings, P50, P95, Std
 from .models import FramePoint, HttpTransaction, SseEventSize
@@ -156,9 +156,10 @@ def _parser() -> argparse.ArgumentParser:
         help="root for recursively mirrored results under timing/ or sse/",
     )
     capture = subparsers.add_parser(
-        "capture", help="run a Codex sequence while capturing its network traffic"
+        "capture", help="run a coding-agent sequence while capturing its traffic"
     )
-    capture.add_argument("model", help="Codex configuration directory name")
+    capture.add_argument("--agent", choices=("codex", "opencode"), required=True)
+    capture.add_argument("model", help="agent configuration directory name")
     capture.add_argument(
         "provider",
         nargs="?",
@@ -175,9 +176,9 @@ def _parser() -> argparse.ArgumentParser:
         "--env-file", type=Path, help="dotenv file (default: .env in working directory)"
     )
     capture.add_argument("--capture-root", type=Path)
-    capture.add_argument("--codex-config-root", type=Path)
+    capture.add_argument("--agent-config-root", type=Path)
     capture.add_argument("--sequence-script", type=Path)
-    capture.add_argument("--codex-binary", type=Path)
+    capture.add_argument("--agent-binary", type=Path)
     capture.add_argument("--capture-interface", "--interface")
     capture.add_argument("--capture-filter", "--filter")
     capture.add_argument("--tail-seconds", type=float)
@@ -303,11 +304,12 @@ def _capture(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         provider = None
 
     names = (
+        "agent",
         "env_file",
         "capture_root",
-        "codex_config_root",
+        "agent_config_root",
         "sequence_script",
-        "codex_binary",
+        "agent_binary",
         "capture_interface",
         "capture_filter",
         "tail_seconds",
@@ -343,7 +345,7 @@ def _capture(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
                     result, repetition, repetitions, all_providers=provider is None
                 )
                 sys.stdout.flush()
-    except CaptureError as error:
+    except TelegentError as error:
         if active_capture is not None and provider is None:
             round_number, failed_provider = active_capture
             print(
@@ -351,9 +353,9 @@ def _capture(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
                 file=sys.stderr,
             )
         print(f"telegent: error: {error}", file=sys.stderr)
-        if error.failure_log_path is not None:
+        if isinstance(error, CaptureError) and error.failure_log_path is not None:
             print(f"failure log: {error.failure_log_path}", file=sys.stderr)
-        return 130 if error.interrupted else 1
+        return 130 if isinstance(error, CaptureError) and error.interrupted else 1
     except KeyboardInterrupt:
         print("telegent: capture interrupted", file=sys.stderr)
         return 130

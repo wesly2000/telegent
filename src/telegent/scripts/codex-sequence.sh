@@ -8,7 +8,7 @@ telegent_load_dotenv
 
 usage() {
     echo "Usage: $0 [codex-binary] [profile]" >&2
-    echo "The arguments may instead be set with TELEGENT_CODEX_BINARY and TELEGENT_MODEL_PROVIDER." >&2
+    echo "The arguments may instead be set with TELEGENT_AGENT_BINARY and TELEGENT_MODEL_PROVIDER." >&2
 }
 
 if [[ $# -gt 2 ]]; then
@@ -16,7 +16,7 @@ if [[ $# -gt 2 ]]; then
     exit 2
 fi
 
-codex_binary=${1:-${TELEGENT_CODEX_BINARY:-}}
+codex_binary=${1:-${TELEGENT_AGENT_BINARY:-}}
 profile=${2:-${TELEGENT_MODEL_PROVIDER:-}}
 if [[ -z $codex_binary || -z $profile ]]; then
     usage
@@ -58,12 +58,16 @@ timestamp=$(date +%Y%m%d-%H%M%S)
 binary_name=$(basename "$codex_binary")
 run_label="$binary_name-$profile"
 run_label=$(printf '%s' "$run_label" | tr -cs '[:alnum:]_.-' '_')
-output_root=${CODEX_SEQUENCE_OUTPUT_DIR:-capture/codex-sequences}
+output_root=${TELEGENT_AGENT_OUTPUT_DIR:-capture/codex-sequences}
 run_dir="$output_root/$timestamp-$run_label-$$"
 mkdir -p "$run_dir"
 
-start_args=(exec -p "$profile" --json -s read-only)
-resume_args=(exec -p "$profile" -s read-only resume --json)
+catalog_args=()
+if [[ -n ${TELEGENT_CODEX_MODEL_CATALOG:-} ]]; then
+    catalog_args=(-c "model_catalog_json=\"$TELEGENT_CODEX_MODEL_CATALOG\"")
+fi
+start_args=(exec -p "$profile" "${catalog_args[@]}" --json -s read-only)
+resume_args=(exec -p "$profile" "${catalog_args[@]}" -s read-only resume --json)
 
 session_id=
 answers_file="$run_dir/answers.txt"

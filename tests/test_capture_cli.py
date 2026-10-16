@@ -13,6 +13,21 @@ def _executable(path: Path) -> Path:
     return path
 
 
+@pytest.mark.parametrize(
+    "arguments",
+    (
+        ["capture", "model", "provider", "--dry-run"],
+        ["capture", "--agent", "codex", "model", "--codex-binary", "x"],
+    ),
+)
+def test_capture_agent_is_required_and_removed_codex_flags_are_rejected(
+    arguments: list[str],
+) -> None:
+    with pytest.raises(SystemExit) as raised:
+        main(arguments)
+    assert raised.value.code == 2
+
+
 def _batch_configuration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     model_dir = tmp_path / "configs/model"
     model_dir.mkdir(parents=True)
@@ -30,18 +45,18 @@ def _batch_configuration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pat
     env_file = tmp_path / ".env"
     env_file.write_text(
         "ZETA_KEY=secret\nALPHA_KEY=secret\n"
-        "TELEGENT_CODEX_CONFIG_ROOT=configs\n"
+        "TELEGENT_AGENT_CONFIG_ROOT=configs\n"
         f"TELEGENT_SEQUENCE_SCRIPT={executable}\n"
-        f"TELEGENT_CODEX_BINARY={executable}\n"
+        f"TELEGENT_AGENT_BINARY={executable}\n"
         f"TELEGENT_TSHARK_BINARY={executable}\n",
         encoding="utf-8",
     )
     for name in (
         "ZETA_KEY",
         "ALPHA_KEY",
-        "TELEGENT_CODEX_CONFIG_ROOT",
+        "TELEGENT_AGENT_CONFIG_ROOT",
         "TELEGENT_SEQUENCE_SCRIPT",
-        "TELEGENT_CODEX_BINARY",
+        "TELEGENT_AGENT_BINARY",
         "TELEGENT_TSHARK_BINARY",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -65,21 +80,21 @@ def test_capture_dry_run_reports_all_dotenv_paths(
     env_file.write_text(
         "API_KEY=secret\n"
         "TELEGENT_CAPTURE_ROOT=sentinel-captures\n"
-        "TELEGENT_CODEX_CONFIG_ROOT=sentinel-configs\n"
+        "TELEGENT_AGENT_CONFIG_ROOT=sentinel-configs\n"
         "TELEGENT_SEQUENCE_SCRIPT=sentinel-executable\n"
         "TELEGENT_PROMPTS_FILE=sentinel-prompts.txt\n"
         "TELEGENT_REQUEST_INTERVAL_SECONDS=4\n"
-        "TELEGENT_CODEX_BINARY=sentinel-executable\n"
+        "TELEGENT_AGENT_BINARY=sentinel-executable\n"
         "TELEGENT_TSHARK_BINARY=sentinel-executable\n",
         encoding="utf-8",
     )
     for name in (
         "TELEGENT_CAPTURE_ROOT",
-        "TELEGENT_CODEX_CONFIG_ROOT",
+        "TELEGENT_AGENT_CONFIG_ROOT",
         "TELEGENT_SEQUENCE_SCRIPT",
         "TELEGENT_PROMPTS_FILE",
         "TELEGENT_REQUEST_INTERVAL_SECONDS",
-        "TELEGENT_CODEX_BINARY",
+        "TELEGENT_AGENT_BINARY",
         "TELEGENT_TSHARK_BINARY",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -88,6 +103,8 @@ def test_capture_dry_run_reports_all_dotenv_paths(
     result = main(
         [
             "capture",
+            "--agent",
+            "codex",
             "model",
             "provider",
             "3",
@@ -105,11 +122,11 @@ def test_capture_dry_run_reports_all_dotenv_paths(
     assert "repetitions: 3" in output
     assert f"dotenv file: {env_file}" in output
     assert f"TELEGENT_CAPTURE_ROOT={tmp_path / 'sentinel-captures'}" in output
-    assert f"TELEGENT_CODEX_CONFIG_ROOT={tmp_path / 'sentinel-configs'}" in output
+    assert f"TELEGENT_AGENT_CONFIG_ROOT={tmp_path / 'sentinel-configs'}" in output
     assert f"TELEGENT_SEQUENCE_SCRIPT={executable}" in output
     assert "TELEGENT_PROMPTS_FILE=sentinel-prompts.txt" in output
     assert "TELEGENT_REQUEST_INTERVAL_SECONDS=2.5" in output
-    assert f"TELEGENT_CODEX_BINARY={executable}" in output
+    assert f"TELEGENT_AGENT_BINARY={executable}" in output
     assert f"TELEGENT_TSHARK_BINARY={executable}" in output
     assert "API_KEY (set)" in output
     assert "secret" not in output
@@ -138,7 +155,7 @@ def test_capture_all_providers_repeats_by_round_in_config_order(
         )
 
     monkeypatch.setattr("telegent.cli.CaptureRunner.collect", collect)
-    result = main(["capture", "model", "2"])
+    result = main(["capture", "--agent", "codex", "model", "2"])
 
     assert result == 0
     assert calls == [
@@ -173,7 +190,7 @@ def test_capture_model_without_count_runs_one_round(
 
     monkeypatch.setattr("telegent.cli.CaptureRunner.collect", collect)
 
-    assert main(["capture", "model"]) == 0
+    assert main(["capture", "--agent", "codex", "model"]) == 0
     assert calls == ["zeta", "alpha"]
 
 
@@ -186,7 +203,7 @@ def test_capture_all_providers_dry_run_validates_without_collecting(
         raise AssertionError("dry run started a capture")
 
     monkeypatch.setattr("telegent.cli.CaptureRunner.collect", collect)
-    result = main(["capture", "model", "3", "--dry-run"])
+    result = main(["capture", "--agent", "codex", "model", "3", "--dry-run"])
 
     assert result == 0
     output = capsys.readouterr().out  # type: ignore[attr-defined]
@@ -211,7 +228,7 @@ def test_capture_all_providers_preflights_every_profile(
         lambda *args: calls.append("called"),
     )
 
-    result = main(["capture", "model", "2"])
+    result = main(["capture", "--agent", "codex", "model", "2"])
 
     assert result == 1
     assert calls == []
@@ -238,7 +255,7 @@ def test_capture_all_providers_stops_on_mid_batch_failure(
         )
 
     monkeypatch.setattr("telegent.cli.CaptureRunner.collect", collect)
-    result = main(["capture", "model", "3"])
+    result = main(["capture", "--agent", "codex", "model", "3"])
 
     assert result == 1
     assert calls == ["zeta", "alpha", "zeta", "alpha"]
@@ -255,7 +272,7 @@ def test_capture_all_providers_returns_interrupt_status_between_runs(
 
     monkeypatch.setattr("telegent.cli.CaptureRunner.collect", collect)
 
-    assert main(["capture", "model", "2"]) == 130
+    assert main(["capture", "--agent", "codex", "model", "2"]) == 130
 
 
 def test_capture_repeats_with_one_resolved_configuration(
@@ -279,7 +296,7 @@ def test_capture_repeats_with_one_resolved_configuration(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("telegent.cli.CaptureRunner.collect", collect)
 
-    result = main(["capture", "model", "provider", "3"])
+    result = main(["capture", "--agent", "codex", "model", "provider", "3"])
 
     assert result == 0
     assert collected == [("model", "provider")] * 3
@@ -303,7 +320,7 @@ def test_repeated_capture_stops_after_first_failure(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("telegent.cli.CaptureRunner.collect", collect)
 
-    result = main(["capture", "model", "provider", "3"])
+    result = main(["capture", "--agent", "codex", "model", "provider", "3"])
 
     assert result == 1
     assert attempts == 1
@@ -312,7 +329,7 @@ def test_repeated_capture_stops_after_first_failure(
 @pytest.mark.parametrize("value", ["0", "-1", "not-a-number"])
 def test_capture_repetition_count_must_be_positive(value: str) -> None:
     with pytest.raises(SystemExit) as raised:
-        main(["capture", "model", "provider", value])
+        main(["capture", "--agent", "codex", "model", "provider", value])
 
     assert raised.value.code == 2
 
@@ -320,7 +337,7 @@ def test_capture_repetition_count_must_be_positive(value: str) -> None:
 @pytest.mark.parametrize("value", ["0", "-1"])
 def test_all_provider_round_count_must_be_positive(value: str) -> None:
     with pytest.raises(SystemExit) as raised:
-        main(["capture", "model", value])
+        main(["capture", "--agent", "codex", "model", value])
 
     assert raised.value.code == 2
 
@@ -328,7 +345,7 @@ def test_all_provider_round_count_must_be_positive(value: str) -> None:
 def test_capture_cli_returns_nonzero_for_validation_error(
     tmp_path: Path, capsys: object
 ) -> None:
-    result = main(["capture", "../unsafe", "provider", "--dry-run"])
+    result = main(["capture", "--agent", "codex", "../unsafe", "provider", "--dry-run"])
 
     assert result == 1
     assert "safe path component" in capsys.readouterr().err  # type: ignore[attr-defined]

@@ -14,9 +14,9 @@ telegent_launch_model() {
     telegent_load_dotenv
 
     local working_directory=$PWD
-    local config_root=${TELEGENT_CODEX_CONFIG_ROOT:-$working_directory/codex-third-party}
+    local config_root=${TELEGENT_AGENT_CONFIG_ROOT:-$working_directory/agent-config}
     local capture_root=${TELEGENT_CAPTURE_ROOT:-$working_directory/capture/chat}
-    local codex_binary=${TELEGENT_CODEX_BINARY:-}
+    local codex_binary=${TELEGENT_AGENT_BINARY:-}
     if [[ -z $codex_binary ]]; then
         local local_codex=$working_directory/codex-rs/target/debug/codex
         if [[ -x $local_codex ]]; then

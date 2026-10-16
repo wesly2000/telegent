@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from time import sleep
 
+from ..configuration import AgentTarget, CaptureSettings
 from ..errors import CaptureError
-from .config import CaptureTarget, validate_target
 from .process import CaptureLog
 from .process import ManagedProcess
 from .process import ProcessResult
@@ -17,11 +17,11 @@ from .process import start_tshark
 from .process import start_workload
 from .process import stop_process
 from .process import wait_process
-from .settings import CaptureSettings
 from .storage import CaptureReservation
 from .storage import finalize_capture
 from .storage import preserve_failure
 from .storage import reserve_capture
+from .validation import validate_target
 
 
 @dataclass(frozen=True)
@@ -41,7 +41,7 @@ class CaptureResult:
 
 
 class CaptureRunner:
-    """Validate and collect one Codex sequence capture on POSIX systems."""
+    """Validate and collect one agent sequence capture on POSIX systems."""
 
     def __init__(self, settings: CaptureSettings) -> None:
         self.settings = settings
@@ -55,20 +55,24 @@ class CaptureRunner:
         )
         partial = self.settings.capture_root / model / f"{provider}_<id>.pcap.partial"
         tshark_command = self._tshark_command(partial)
-        workload_command = self._workload_command(provider)
+        workload_command = self._workload_command(target)
+        credential_names = ", ".join(
+            f"{name} (set)" for name in target.credential_environment_variables
+        )
         lines = (
             "capture dry run (no ID reserved)",
             f"dotenv file: {self.settings.env_file or '<not loaded>'}",
+            f"agent: {self.settings.agent}",
             f"model: {model}",
             f"provider: {provider}",
             f"configured model: {target.configured_model}",
-            f"TELEGENT_CODEX_CONFIG_ROOT={self.settings.codex_config_root}",
-            f"Codex home: {target.codex_home}",
+            f"TELEGENT_AGENT_CONFIG_ROOT={self.settings.agent_config_root}",
+            f"selected config: {target.config_path}",
             f"TELEGENT_CAPTURE_ROOT={self.settings.capture_root}",
             f"TLS key log: {self.settings.capture_root / model / 'sslkeys.key'}",
             f"TELEGENT_SEQUENCE_SCRIPT={self.settings.sequence_script}",
             f"TELEGENT_PROMPTS_FILE={prompts_file}",
-            f"TELEGENT_CODEX_BINARY={self.settings.codex_binary}",
+            f"TELEGENT_AGENT_BINARY={self.settings.agent_binary}",
             f"TELEGENT_TSHARK_BINARY={self.settings.tshark_binary}",
             f"TELEGENT_CAPTURE_INTERFACE={self.settings.capture_interface}",
             f"TELEGENT_CAPTURE_FILTER={self.settings.capture_filter}",
@@ -77,7 +81,7 @@ class CaptureRunner:
             f"{self.settings.request_interval_seconds:g}",
             "TELEGENT_CAPTURE_START_TIMEOUT_SECONDS="
             f"{self.settings.capture_start_timeout_seconds:g}",
-            f"API key variable: {target.api_key_environment_variable} (set)",
+            f"credential environment variables: {credential_names or '<none>'}",
             f"tshark command: {shlex.join(tshark_command)}",
             f"workload command: {shlex.join(workload_command)}",
         )
@@ -93,10 +97,11 @@ class CaptureRunner:
         tshark: ManagedProcess | None = None
         workload: ManagedProcess | None = None
         try:
-            reservation.ssl_keylog_path.touch(exist_ok=True)
+            reservation.ssl_keylog_path.touch(mode=0o600, exist_ok=True)
+            reservation.ssl_keylog_path.chmod(0o600)
             capture_log = CaptureLog(reservation.capture_log_path)
             tshark_command = self._tshark_command(reservation.partial_pcap_path)
-            workload_command = self._workload_command(provider)
+            workload_command = self._workload_command(target)
             capture_log.write("telegent", f"tshark command: {shlex.join(tshark_command)}\n")
             capture_log.write(
                 "telegent", f"workload command: {shlex.join(workload_command)}\n"
@@ -115,7 +120,8 @@ class CaptureRunner:
             agent_result = wait_process(workload)
             if agent_result.returncode != 0:
                 raise CaptureError(
-                    f"Codex sequence exited with status {agent_result.returncode}"
+                    f"{self.settings.agent} sequence exited with status "
+                    f"{agent_result.returncode}"
                 )
             sleep(self.settings.tail_seconds)
             tshark_result = stop_process(tshark, signal.SIGINT)
@@ -175,34 +181,76 @@ class CaptureRunner:
             str(pcap_path),
         ]
 
-    def _workload_command(self, provider: str) -> list[str]:
-        return [
-            str(self.settings.sequence_script),
-            str(self.settings.codex_binary),
-            provider,
-        ]
+    def _workload_command(self, target: AgentTarget) -> list[str]:
+        command = [str(self.settings.sequence_script), str(self.settings.agent_binary)]
+        if target.agent == "opencode":
+            return command + [target.configured_model, str(self.settings.working_directory)]
+        elif target.agent == "codex":
+            return command + [target.provider]
+        else:
+            raise NotImplementedError(
+                f"workload command is not implemented for agent {target.agent!r}"
+            )
 
     def _child_environment(
-        self, target: CaptureTarget, reservation: CaptureReservation
+        self, target: AgentTarget, reservation: CaptureReservation
     ) -> dict[str, str]:
         environment = dict(self.settings.environment)
         environment.update(
             {
-                "CODEX_HOME": str(target.codex_home),
                 "SSLKEYLOGFILE": str(reservation.ssl_keylog_path),
-                "CODEX_SEQUENCE_OUTPUT_DIR": str(reservation.run_directory / "agent"),
+                "TELEGENT_AGENT_OUTPUT_DIR": str(reservation.run_directory / "agent"),
                 "TELEGENT_REQUEST_INTERVAL_SECONDS": (
                     f"{self.settings.request_interval_seconds:g}"
                 ),
             }
         )
+        if target.agent == "codex":
+            environment["CODEX_HOME"] = str(target.config_directory)
+            if target.model_catalog is not None:
+                environment["TELEGENT_CODEX_MODEL_CATALOG"] = str(target.model_catalog)
+        elif target.agent == "opencode":
+            state_root = reservation.run_directory / "agent-state"
+            xdg_paths = {
+                "XDG_CONFIG_HOME": state_root / "config",
+                "XDG_DATA_HOME": state_root / "data",
+                "XDG_STATE_HOME": state_root / "state",
+                "XDG_CACHE_HOME": state_root / "cache",
+            }
+            for path in xdg_paths.values():
+                path.mkdir(parents=True, exist_ok=True)
+            environment.update({name: str(path) for name, path in xdg_paths.items()})
+            environment.update(
+                {
+                    "OPENCODE_CONFIG_CONTENT": target.inline_config or "{}",
+                    "OPENCODE_DISABLE_PROJECT_CONFIG": "1",
+                    "OPENCODE_PURE": "1",
+                    "OPENCODE_DISABLE_AUTOUPDATE": "1",
+                    "OPENCODE_DISABLE_AUTOCOMPACT": "1",
+                    "OPENCODE_DISABLE_MODELS_FETCH": "1",
+                    "OPENCODE_AUTH_CONTENT": "{}",
+                }
+            )
+        else:
+            raise NotImplementedError(
+                f"child environment is not implemented for agent {target.agent!r}"
+            )
         return environment
 
     def _metadata(
-        self, result: CaptureResult, target: CaptureTarget
+        self, result: CaptureResult, target: AgentTarget
     ) -> dict[str, object]:
+        if target.agent == "opencode":
+            isolated_state_path = str(result.run_directory / "agent-state")
+        elif target.agent == "codex":
+            isolated_state_path = None
+        else:
+            raise NotImplementedError(
+                f"capture metadata is not implemented for agent {target.agent!r}"
+            )
         return {
             "capture_id": result.capture_id,
+            "agent": target.agent,
             "model": result.model,
             "provider": result.provider,
             "configured_model": target.configured_model,
@@ -216,11 +264,15 @@ class CaptureRunner:
                 "capture_start_timeout_seconds": (
                     self.settings.capture_start_timeout_seconds
                 ),
-                "codex_home": str(target.codex_home),
+                "agent_config_root": str(self.settings.agent_config_root),
+                "selected_config": str(target.config_path),
                 "sequence_script": str(self.settings.sequence_script),
-                "codex_binary": str(self.settings.codex_binary),
+                "agent_binary": str(self.settings.agent_binary),
                 "tshark_binary": str(self.settings.tshark_binary),
-                "api_key_environment_variable": target.api_key_environment_variable,
+                "credential_environment_variables": list(
+                    target.credential_environment_variables
+                ),
+                "isolated_state_path": isolated_state_path,
             },
             "artifacts": {
                 "run_directory": str(result.run_directory),

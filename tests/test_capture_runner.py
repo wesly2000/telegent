@@ -1,9 +1,11 @@
 import json
+import stat
 from pathlib import Path
 
 import pytest
 
 from telegent import CaptureError, CaptureRunner, CaptureSettings
+from telegent.configuration import AgentTarget
 
 
 def _executable(path: Path, body: str) -> Path:
@@ -40,7 +42,7 @@ def _fixture(
     sequence = _executable(
         tmp_path / "sequence",
         "import json, os, pathlib, sys\n"
-        "output = pathlib.Path(os.environ['CODEX_SEQUENCE_OUTPUT_DIR'])\n"
+        "output = pathlib.Path(os.environ['TELEGENT_AGENT_OUTPUT_DIR'])\n"
         "output.mkdir(parents=True)\n"
         "observed = {\n"
         "  'args': sys.argv[1:],\n"
@@ -55,10 +57,12 @@ def _fixture(
     )
     codex = _executable(tmp_path / "codex", "import sys\nsys.exit(0)\n")
     return CaptureSettings(
+        agent="codex",
         capture_root=tmp_path / "captures",
-        codex_config_root=tmp_path / "configs",
+        agent_config_root=tmp_path / "configs",
         sequence_script=sequence,
-        codex_binary=codex,
+        agent_binary=codex,
+        working_directory=tmp_path,
         capture_interface="test0",
         capture_filter="port 443",
         tail_seconds=tail,
@@ -85,12 +89,13 @@ def test_collect_publishes_artifacts_metadata_and_child_configuration(
     assert result.pcap_path.name == "provider_01.pcap"
     assert result.pcap_path.read_bytes() == b"\x0a\x0d\x0d\x0a"
     assert result.ssl_keylog_path.read_text(encoding="utf-8") == "EXISTING\nNEWKEY\n"
+    assert stat.S_IMODE(result.ssl_keylog_path.stat().st_mode) == 0o600
     observed = json.loads(
         (result.run_directory / "agent/observed.json").read_text(encoding="utf-8")
     )
     assert observed == {
-        "args": [str(settings.codex_binary), "provider"],
-        "codex_home": str(settings.codex_config_root / "model"),
+        "args": [str(settings.agent_binary), "provider"],
+        "codex_home": str(settings.agent_config_root / "model"),
         "sslkeylogfile": str(result.ssl_keylog_path),
         "request_interval": "1.25",
         "api_key_present": True,
@@ -140,6 +145,23 @@ def test_dry_run_validates_without_reserving_or_exposing_key(tmp_path: Path) -> 
     assert "TELEGENT_REQUEST_INTERVAL_SECONDS=0" in output
     assert "top-secret" not in output
     assert not settings.capture_root.exists()
+
+
+def test_unsupported_agent_has_no_workload_fallback(tmp_path: Path) -> None:
+    settings = _fixture(tmp_path)
+    target = AgentTarget(
+        agent="codex",
+        model="model",
+        provider="provider",
+        config_directory=tmp_path,
+        config_path=tmp_path / "config.toml",
+        configured_model="configured-model",
+        credential_environment_variables=(),
+    )
+    object.__setattr__(target, "agent", "unsupported")
+
+    with pytest.raises(NotImplementedError, match="workload command.*unsupported"):
+        CaptureRunner(settings)._workload_command(target)
 
 
 def test_interruption_cleans_up_without_tail_delay(

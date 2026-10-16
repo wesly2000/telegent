@@ -6,8 +6,8 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..configuration import CaptureSettings
 from ..errors import CaptureError
-from .settings import CaptureSettings
 
 
 @dataclass(frozen=True)

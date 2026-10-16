@@ -133,7 +133,7 @@ def start_workload(
             start_new_session=True,
         )
     except OSError as error:
-        raise CaptureError(f"could not start Codex sequence: {error}") from error
+        raise CaptureError(f"could not start agent sequence: {error}") from error
     thread = threading.Thread(
         target=_copy_output,
         args=(process.stdout, capture_log, "agent", None),

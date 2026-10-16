@@ -1,10 +1,11 @@
-"""Automated Codex traffic collection."""
+"""Automated coding-agent traffic collection."""
 
+from ..configuration import AgentKind, CaptureSettings
 from .process import ProcessResult
 from .runner import CaptureResult, CaptureRunner
-from .settings import CaptureSettings
 
 __all__ = [
+    "AgentKind",
     "CaptureResult",
     "CaptureRunner",
     "CaptureSettings",

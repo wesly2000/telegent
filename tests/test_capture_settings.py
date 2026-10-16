@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from telegent import CaptureError, CaptureSettings
+from telegent import CaptureSettings, ConfigurationError
 
 
 def test_cli_environment_dotenv_and_default_precedence(tmp_path: Path) -> None:
@@ -51,12 +51,12 @@ def test_explicit_env_file_and_invalid_duration(tmp_path: Path) -> None:
     env_file = tmp_path / "capture.env"
     env_file.write_text("TELEGENT_TAIL_SECONDS=-1\n", encoding="utf-8")
 
-    with pytest.raises(CaptureError, match="must not be negative"):
+    with pytest.raises(ConfigurationError, match="must not be negative"):
         CaptureSettings.resolve(
             {"env_file": env_file}, environ={"PATH": ""}, cwd=tmp_path
         )
 
-    with pytest.raises(CaptureError, match="environment file does not exist"):
+    with pytest.raises(ConfigurationError, match="environment file does not exist"):
         CaptureSettings.resolve(
             {"env_file": tmp_path / "missing.env"},
             environ={"PATH": ""},
@@ -66,7 +66,7 @@ def test_explicit_env_file_and_invalid_duration(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("value", ["-1", "nan", "inf", "-inf", "not-a-number"])
 def test_invalid_request_interval_is_rejected(tmp_path: Path, value: str) -> None:
-    with pytest.raises(CaptureError, match="request interval seconds"):
+    with pytest.raises(ConfigurationError, match="request interval seconds"):
         CaptureSettings.resolve(
             {"request_interval_seconds": value},
             environ={"PATH": ""},
@@ -74,20 +74,20 @@ def test_invalid_request_interval_is_rejected(tmp_path: Path, value: str) -> Non
         )
 
 
-def test_repository_codex_binary_is_preferred_over_path(tmp_path: Path) -> None:
+def test_repository_agent_binary_is_preferred_over_path(tmp_path: Path) -> None:
     local_codex = tmp_path / "codex-rs/target/debug/codex"
     local_codex.parent.mkdir(parents=True)
     local_codex.write_text("local", encoding="utf-8")
 
     settings = CaptureSettings.resolve(environ={"PATH": "/bin"}, cwd=tmp_path)
 
-    assert settings.codex_binary == local_codex
+    assert settings.agent_binary == local_codex
 
 
 def test_env_example_is_documentation_not_runtime_fallback(tmp_path: Path) -> None:
     (tmp_path / ".env.example").write_text(
         "TELEGENT_CAPTURE_ROOT=example-captures\n"
-        "TELEGENT_CODEX_CONFIG_ROOT=example-configs\n"
+        "TELEGENT_AGENT_CONFIG_ROOT=example-configs\n"
         "TELEGENT_PROMPTS_FILE=example-prompts.txt\n",
         encoding="utf-8",
     )
@@ -96,5 +96,5 @@ def test_env_example_is_documentation_not_runtime_fallback(tmp_path: Path) -> No
 
     assert settings.env_file is None
     assert settings.capture_root == tmp_path / "capture/chat"
-    assert settings.codex_config_root == tmp_path / "codex-third-party"
+    assert settings.agent_config_root == tmp_path / "agent-config"
     assert settings.request_interval_seconds == 0

@@ -7,10 +7,12 @@ from telegent.collector.storage import preserve_failure, reserve_capture
 
 def _settings(tmp_path: Path) -> CaptureSettings:
     return CaptureSettings(
+        agent="codex",
         capture_root=tmp_path,
-        codex_config_root=tmp_path,
+        agent_config_root=tmp_path,
         sequence_script=tmp_path,
-        codex_binary=tmp_path,
+        agent_binary=tmp_path,
+        working_directory=tmp_path,
         capture_interface="eth0",
         capture_filter="port 443",
         tail_seconds=0,

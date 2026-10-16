@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from telegent.collector.settings import CaptureSettings
+from telegent import CaptureSettings
 
 
 def _executable(path: Path, body: str) -> Path:
@@ -42,9 +42,9 @@ def test_model_launcher_loads_dotenv_and_preserves_process_precedence(
         "PYTHON\n",
     )
     (tmp_path / ".env").write_text(
-        f"TELEGENT_CODEX_CONFIG_ROOT={config_root}\n"
+        f"TELEGENT_AGENT_CONFIG_ROOT={config_root}\n"
         f"TELEGENT_CAPTURE_ROOT={dotenv_capture_root}\n"
-        f"TELEGENT_CODEX_BINARY={fake_codex}\n"
+        f"TELEGENT_AGENT_BINARY={fake_codex}\n"
         f"OBSERVED_PATH={tmp_path / 'wrong.json'}\n"
         "TEST_API_KEY=dotenv-secret\n",
         encoding="utf-8",
@@ -87,10 +87,10 @@ def test_sequence_can_load_binary_provider_and_prompts_from_dotenv(tmp_path: Pat
     prompts.write_text("A short test prompt.\n", encoding="utf-8")
     output = tmp_path / "output"
     (tmp_path / ".env").write_text(
-        f"TELEGENT_CODEX_BINARY={fake_codex}\n"
+        f"TELEGENT_AGENT_BINARY={fake_codex}\n"
         "TELEGENT_MODEL_PROVIDER=test-provider\n"
         f"TELEGENT_PROMPTS_FILE={prompts}\n"
-        f"CODEX_SEQUENCE_OUTPUT_DIR={output}\n",
+        f"TELEGENT_AGENT_OUTPUT_DIR={output}\n",
         encoding="utf-8",
     )
     environment = {**os.environ, "TELEGENT_PYTHON_BINARY": sys.executable}
@@ -131,7 +131,7 @@ def test_sequence_waits_only_between_completed_prompts(tmp_path: Path) -> None:
         "PATH": f"{tmp_path}:{os.environ['PATH']}",
         "TELEGENT_PROMPTS_FILE": str(prompts),
         "TELEGENT_REQUEST_INTERVAL_SECONDS": "0.25",
-        "CODEX_SEQUENCE_OUTPUT_DIR": str(tmp_path / "output"),
+        "TELEGENT_AGENT_OUTPUT_DIR": str(tmp_path / "output"),
         "ACTION_LOG": str(action_log),
     }
 
