@@ -236,16 +236,17 @@ def test_capture_all_providers_preflights_every_profile(
     assert not (tmp_path / "capture").exists()
 
 
-def test_capture_all_providers_stops_on_mid_batch_failure(
+def test_capture_all_providers_continues_after_mid_batch_failure(
     tmp_path: Path, capsys: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _batch_configuration(tmp_path, monkeypatch)
     calls: list[str] = []
+    failure_log = tmp_path / "capture" / "model" / "failures" / "alpha.log"
 
     def collect(_: object, model: str, provider: str) -> object:
         calls.append(provider)
         if len(calls) == 4:
-            raise CaptureError("failed capture")
+            raise CaptureError("failed capture", failure_log)
         return SimpleNamespace(
             provider=provider,
             capture_id=calls.count(provider),
@@ -258,8 +259,12 @@ def test_capture_all_providers_stops_on_mid_batch_failure(
     result = main(["capture", "--agent", "codex", "model", "3"])
 
     assert result == 1
-    assert calls == ["zeta", "alpha", "zeta", "alpha"]
-    assert "capture failed in round 2/3: alpha" in capsys.readouterr().err  # type: ignore[attr-defined]
+    assert calls == ["zeta", "alpha", "zeta", "alpha", "zeta", "alpha"]
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert "capture round 3/3: alpha_03 complete" in captured.out
+    assert "capture failed in round 2/3: alpha" in captured.err
+    assert "telegent: error: failed capture" in captured.err
+    assert f"failure log: {failure_log}" in captured.err
 
 
 def test_capture_all_providers_returns_interrupt_status_between_runs(
@@ -307,15 +312,23 @@ def test_capture_repeats_with_one_resolved_configuration(
     assert "capture 3/3: provider_03 complete" in output
 
 
-def test_repeated_capture_stops_after_first_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_repeated_capture_continues_after_failures(
+    tmp_path: Path, capsys: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     attempts = 0
 
     def collect(_: object, model: str, provider: str) -> object:
         nonlocal attempts
         attempts += 1
-        raise CaptureError("failed repetition")
+        if attempts in (1, 3):
+            raise CaptureError(f"failed repetition {attempts}")
+        return SimpleNamespace(
+            provider=provider,
+            capture_id=1,
+            pcap_path=tmp_path / "provider_01.pcap",
+            ssl_keylog_path=tmp_path / "sslkeys.key",
+            run_directory=tmp_path / "provider_01",
+        )
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("telegent.cli.CaptureRunner.collect", collect)
@@ -323,7 +336,34 @@ def test_repeated_capture_stops_after_first_failure(
     result = main(["capture", "--agent", "codex", "model", "provider", "3"])
 
     assert result == 1
+    assert attempts == 3
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert "capture 2/3: provider_01 complete" in captured.out
+    assert "capture failed in repetition 1/3: provider" in captured.err
+    assert "capture failed in repetition 3/3: provider" in captured.err
+
+
+def test_capture_runner_interruption_stops_remaining_repetitions(
+    tmp_path: Path, capsys: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    attempts = 0
+    failure_log = tmp_path / "capture-interrupted.log"
+
+    def collect(_: object, model: str, provider: str) -> object:
+        nonlocal attempts
+        attempts += 1
+        raise CaptureError("capture interrupted", failure_log, interrupted=True)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("telegent.cli.CaptureRunner.collect", collect)
+
+    result = main(["capture", "--agent", "codex", "model", "provider", "3"])
+
+    assert result == 130
     assert attempts == 1
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert "capture failed in repetition 1/3: provider" in captured.err
+    assert f"failure log: {failure_log}" in captured.err
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "not-a-number"])

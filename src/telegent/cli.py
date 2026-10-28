@@ -329,7 +329,7 @@ def _capture(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         "tshark_binary",
     )
     overrides = {name: getattr(args, name) for name in names if getattr(args, name) is not None}
-    active_capture: tuple[int, str] | None = None
+    capture_failed = False
     try:
         runner = CaptureRunner(CaptureSettings.resolve(overrides))
         providers = (
@@ -350,19 +350,25 @@ def _capture(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
             )
         for repetition in range(1, repetitions + 1):
             for selected_provider in providers:
-                active_capture = repetition, selected_provider
-                result = runner.collect(args.model, selected_provider)
+                try:
+                    result = runner.collect(args.model, selected_provider)
+                except CaptureError as error:
+                    _print_capture_failure(
+                        error,
+                        repetition,
+                        repetitions,
+                        selected_provider,
+                        all_providers=provider is None,
+                    )
+                    if error.interrupted:
+                        return 130
+                    capture_failed = True
+                    continue
                 _print_capture_result(
                     result, repetition, repetitions, all_providers=provider is None
                 )
                 sys.stdout.flush()
     except TelegentError as error:
-        if active_capture is not None and provider is None:
-            round_number, failed_provider = active_capture
-            print(
-                f"capture failed in round {round_number}/{repetitions}: {failed_provider}",
-                file=sys.stderr,
-            )
         print(f"telegent: error: {error}", file=sys.stderr)
         if isinstance(error, CaptureError) and error.failure_log_path is not None:
             print(f"failure log: {error.failure_log_path}", file=sys.stderr)
@@ -371,7 +377,27 @@ def _capture(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         print("telegent: capture interrupted", file=sys.stderr)
         return 130
 
-    return 0
+    return 1 if capture_failed else 0
+
+
+def _print_capture_failure(
+    error: CaptureError,
+    repetition: int,
+    repetitions: int,
+    provider: str,
+    *,
+    all_providers: bool,
+) -> None:
+    if all_providers:
+        context = f" in round {repetition}/{repetitions}"
+    elif repetitions > 1:
+        context = f" in repetition {repetition}/{repetitions}"
+    else:
+        context = ""
+    print(f"capture failed{context}: {provider}", file=sys.stderr)
+    print(f"telegent: error: {error}", file=sys.stderr)
+    if error.failure_log_path is not None:
+        print(f"failure log: {error.failure_log_path}", file=sys.stderr)
 
 
 def _print_capture_result(
