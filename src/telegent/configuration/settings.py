@@ -168,7 +168,7 @@ def _resolve_agent_settings(
 
     config_root = overrides.get("agent_config_root")
     if config_root is None:
-        config_root = environment.get("TELEGENT_AGENT_CONFIG_ROOT", "agent-config")
+        config_root = environment.get("TELEGENT_AGENT_CONFIG_ROOT")
     binary = overrides.get("agent_binary")
     if binary is None:
         binary = environment.get("TELEGENT_AGENT_BINARY")
