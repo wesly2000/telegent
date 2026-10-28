@@ -125,6 +125,7 @@ def start_workload(
     try:
         process = popen(
             list(command),
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,

@@ -1,3 +1,4 @@
+import io
 import signal
 import subprocess
 from pathlib import Path
@@ -5,7 +6,14 @@ from pathlib import Path
 import pytest
 
 from telegent import CaptureError
-from telegent.collector.process import CaptureLog, ManagedProcess, start_tshark, stop_process
+from telegent.collector.process import (
+    CaptureLog,
+    ManagedProcess,
+    start_tshark,
+    start_workload,
+    stop_process,
+    wait_process,
+)
 
 
 def _script(tmp_path: Path, body: str) -> Path:
@@ -13,6 +21,29 @@ def _script(tmp_path: Path, body: str) -> Path:
     path.write_text(f"#!/usr/bin/python3\n{body}", encoding="utf-8")
     path.chmod(0o755)
     return path
+
+
+def test_workload_does_not_inherit_stdin(tmp_path: Path) -> None:
+    popen_options: dict[str, object] = {}
+
+    class FakeProcess:
+        pid = 123
+        stdout = io.StringIO("")
+
+        def wait(self) -> int:
+            return 0
+
+    def fake_popen(command: list[str], **options: object) -> FakeProcess:
+        popen_options.update(options)
+        return FakeProcess()
+
+    capture_log = CaptureLog(tmp_path / "capture.log")
+    managed = start_workload(["agent"], {}, capture_log, popen=fake_popen)
+    result = wait_process(managed)
+    capture_log.close()
+
+    assert popen_options["stdin"] is subprocess.DEVNULL
+    assert result.returncode == 0
 
 
 def _command(script: Path, pcap: Path) -> list[str]:
