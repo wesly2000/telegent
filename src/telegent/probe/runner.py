@@ -145,7 +145,6 @@ class EndpointProbe:
                 {
                     "OPENCODE_CONFIG_CONTENT": target.inline_config or "{}",
                     "OPENCODE_DISABLE_PROJECT_CONFIG": "1",
-                    "OPENCODE_PURE": "1",
                     "OPENCODE_DISABLE_AUTOUPDATE": "1",
                     "OPENCODE_DISABLE_AUTOCOMPACT": "1",
                     "OPENCODE_DISABLE_MODELS_FETCH": "1",
@@ -155,7 +154,6 @@ class EndpointProbe:
             command = [
                 str(binary),
                 "run",
-                "--pure",
                 "--format",
                 "json",
                 "--model",

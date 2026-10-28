@@ -181,6 +181,7 @@ def load_opencode_target(
         )
 
     normalized = _rewrite_file_references(parsed, path.parent)
+    normalized = _rewrite_plugin_references(normalized, path.parent)
     references = tuple(sorted(_environment_references(normalized)))
     missing = [name for name in references if not environment.get(name)]
     if missing:
@@ -275,6 +276,28 @@ def _rewrite_file_references(value: Any, base: Path) -> Any:
         return f"{{file:{referenced}}}"
 
     return _FILE_REFERENCE.sub(replace, value)
+
+
+def _rewrite_plugin_references(config: dict[str, Any], base: Path) -> dict[str, Any]:
+    plugins = config.get("plugin")
+    if not isinstance(plugins, list):
+        return config
+
+    def rewrite(spec: Any) -> Any:
+        if isinstance(spec, str):
+            if not spec.startswith("."):
+                return spec
+            return (base / spec).resolve().as_uri()
+        if (
+            isinstance(spec, list)
+            and spec
+            and isinstance(spec[0], str)
+            and spec[0].startswith(".")
+        ):
+            return [(base / spec[0]).resolve().as_uri(), *spec[1:]]
+        return spec
+
+    return {**config, "plugin": [rewrite(spec) for spec in plugins]}
 
 
 def _environment_references(value: Any) -> set[str]:
