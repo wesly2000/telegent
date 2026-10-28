@@ -75,7 +75,7 @@ for index in "${!prompts[@]}"; do
     prompt=${prompts[$index]}
     event_file=$(printf '%s/turn_%02d.jsonl' "$run_dir" "$turn_number")
     command=(
-        "$opencode_binary" run --pure --format json
+        "$opencode_binary" run --format json
         --model "$configured_model" --dir "$working_directory"
     )
     if [[ -n $session_id ]]; then
