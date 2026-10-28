@@ -43,6 +43,9 @@ def _native_config(tmp_path: Path, provider: str = "official") -> Path:
     model_dir = tmp_path / "configs/deepseek"
     model_dir.mkdir(parents=True, exist_ok=True)
     (model_dir / "system.txt").write_text("Be concise", encoding="utf-8")
+    (model_dir / "chat-params.ts").write_text(
+        "export default async () => ({})\n", encoding="utf-8"
+    )
     path = model_dir / f"{provider}.opencode.jsonc"
     path.write_text(
         """{
@@ -54,6 +57,7 @@ def _native_config(tmp_path: Path, provider: str = "official") -> Path:
               options: { apiKey: "{env:DEEPSEEK_API_KEY}" },
             },
           },
+          plugin: ["./chat-params.ts", ["example-plugin", { enabled: true }]],
           instructions: ["{file:./system.txt}"],
         }
         """,
@@ -82,6 +86,10 @@ def test_native_jsonc_is_normalized_and_file_references_are_anchored(
     )
     assert normalized["instructions"] == [
         f"{{file:{source.parent / 'system.txt'}}}"
+    ]
+    assert normalized["plugin"] == [
+        (source.parent / "chat-params.ts").resolve().as_uri(),
+        ["example-plugin", {"enabled": True}],
     ]
 
 
@@ -143,7 +151,7 @@ data = {
     "home": os.environ.get("HOME"),
     "xdg": {name: os.environ[name] for name in names},
     "flags": {name: os.environ[name] for name in (
-        "OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_PURE",
+        "OPENCODE_DISABLE_PROJECT_CONFIG",
         "OPENCODE_DISABLE_AUTOUPDATE", "OPENCODE_DISABLE_AUTOCOMPACT",
         "OPENCODE_DISABLE_MODELS_FETCH", "OPENCODE_AUTH_CONTENT",
     )},
