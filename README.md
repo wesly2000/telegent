@@ -19,6 +19,16 @@ Install the package in a virtual environment:
 python -m pip install ./telegent
 ```
 
+For development, install the package in editable mode so changes in the source
+tree are immediately available in the virtual environment:
+
+```bash
+python -m pip install --editable ./telegent
+```
+
+When running the command from inside the `telegent` repository, use
+`python -m pip install --editable .` instead.
+
 Copy `.env.example` to `.env`, set the local paths and provider API keys, then
 select the agent explicitly when capturing a configured model/provider pair:
 
@@ -87,7 +97,8 @@ validates every `{env:NAME}` reference before capture and rewrites relative
 `{file:path}` references relative to the selected config file. It passes the
 normalized object through `OPENCODE_CONFIG_CONTENT`, disables project config,
 model refreshes, updates and compaction, and creates capture-local XDG config,
-data, state and cache directories. It does not change `HOME`.
+data, state and cache directories. Relative local-plugin paths are anchored to
+the selected config file before it is passed inline. It does not change `HOME`.
 
 ### Capture controls
 
@@ -128,8 +139,11 @@ nohup /home/lxyu/aitraffic/bin/telegent capture \
 ```
 
 Each successful repetition receives its own provider-specific capture ID. If a
-repetition fails, Telegent stops immediately, preserves earlier successful
-captures, and returns a nonzero status.
+capture fails, Telegent stops its workload and tshark processes, records a
+diagnostic log, and continues with the remaining providers or repetitions. The
+command preserves successful captures and returns a nonzero status after the
+schedule finishes if any capture failed. User interruption still stops the
+schedule immediately.
 
 Use `--dry-run` to validate configs, credentials and executables and show the
 resolved paths and commands without reserving an ID or starting a process:
