@@ -113,6 +113,44 @@ def test_sequence_can_load_binary_provider_and_prompts_from_dotenv(tmp_path: Pat
     assert "OK" in (run_directory / "answers.txt").read_text(encoding="utf-8")
 
 
+def test_sequence_skips_git_repo_check_for_start_and_resume(tmp_path: Path) -> None:
+    fake_codex = _executable(
+        tmp_path / "fake-codex",
+        "printf '%s\\n' \"$*\" >>\"$ARGS_LOG\"\n"
+        "printf '%s\\n' "
+        "'{\"type\":\"thread.started\",\"thread_id\":\"thread-1\"}' "
+        "'{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"OK\"}}' "
+        "'{\"type\":\"turn.completed\"}'\n",
+    )
+    prompts = tmp_path / "prompts.txt"
+    prompts.write_text("First\nSecond\n", encoding="utf-8")
+    args_log = tmp_path / "args.log"
+    environment = {
+        **os.environ,
+        "TELEGENT_PROMPTS_FILE": str(prompts),
+        "TELEGENT_AGENT_OUTPUT_DIR": str(tmp_path / "output"),
+        "ARGS_LOG": str(args_log),
+    }
+
+    result = subprocess.run(
+        [_scripts_directory(tmp_path) / "codex-sequence.sh", fake_codex, "provider"],
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert args_log.read_text(encoding="utf-8").splitlines() == [
+        "exec -p provider --json -s read-only --skip-git-repo-check First",
+        (
+            "exec -p provider -s read-only --skip-git-repo-check "
+            "resume --json thread-1 Second"
+        ),
+    ]
+
+
 def test_sequence_waits_only_between_completed_prompts(tmp_path: Path) -> None:
     fake_codex = _executable(
         tmp_path / "fake-codex",
