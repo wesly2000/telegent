@@ -198,7 +198,7 @@ def test_opencode_probe_runs_the_real_binary_in_an_isolated_environment(
         "  'args': sys.argv[1:],\n"
         "  'config': json.loads(os.environ['OPENCODE_CONFIG_CONTENT']),\n"
         "  'xdg': [os.environ[name] for name in names],\n"
-        "  'pure': os.environ['OPENCODE_PURE'],\n"
+        "  'pure': os.environ.get('OPENCODE_PURE'),\n"
         "}\n"
         "pathlib.Path(os.environ['PROBE_LOG']).write_text(json.dumps(record))\n"
         "print(json.dumps({'type': 'text', 'part': {"
@@ -221,7 +221,6 @@ def test_opencode_probe_runs_the_real_binary_in_an_isolated_environment(
     record = json.loads(log.read_text(encoding="utf-8"))
     assert record["args"] == [
         "run",
-        "--pure",
         "--format",
         "json",
         "--model",
@@ -231,7 +230,7 @@ def test_opencode_probe_runs_the_real_binary_in_an_isolated_environment(
         "Hi",
     ]
     assert record["config"]["model"] == "deepseek/deepseek-chat"
-    assert record["pure"] == "1"
+    assert record["pure"] is None
     assert all(
         Path(path).parent.name.startswith("telegent-opencode-probe-")
         for path in record["xdg"]
