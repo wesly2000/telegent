@@ -66,8 +66,8 @@ catalog_args=()
 if [[ -n ${TELEGENT_CODEX_MODEL_CATALOG:-} ]]; then
     catalog_args=(-c "model_catalog_json=\"$TELEGENT_CODEX_MODEL_CATALOG\"")
 fi
-start_args=(exec -p "$profile" "${catalog_args[@]}" --json -s read-only)
-resume_args=(exec -p "$profile" "${catalog_args[@]}" -s read-only resume --json)
+start_args=(exec -p "$profile" "${catalog_args[@]}" --json -s read-only --skip-git-repo-check)
+resume_args=(exec -p "$profile" "${catalog_args[@]}" -s read-only --skip-git-repo-check resume --json)
 
 session_id=
 answers_file="$run_dir/answers.txt"
